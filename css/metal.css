@@ -1,0 +1,297 @@
+/*
+ * metal.css - CelCamp Phoenix (2026)
+ * Java's "Metal / Ocean" look and feel (JDK 5/6, NetBeans 5.5 era), for the web.
+ */
+:root {
+    --desktop: #3f6f96;
+    --desktop-2: #2d5576;
+    --panel: #eeeeee;
+    --panel-line: #b8c4d0;
+    --text: #222222;
+    --muted: #4a5560;
+    --ocean-1: #ffffff;
+    --ocean-2: #dde8f3;
+    --ocean-3: #b8cfe5;
+    --ocean-border: #7a8a99;
+    --ocean-sel: #6382bf;
+    --ocean-sel-text: #ffffff;
+    --title-1: #cfdcea;
+    --title-2: #9db7d3;
+    --field: #ffffff;
+    --warn: #a33a1f;
+    --font: "Lucida Sans", "Lucida Grande", "DejaVu Sans", Verdana, Arial, sans-serif;
+    --mono: "Lucida Sans Typewriter", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+    background: var(--desktop);
+    color: var(--text);
+    font: 12px/1.35 var(--font);
+    overflow: hidden;
+}
+body.busy, body.busy * { cursor: progress !important; }
+#desktop {
+    position: relative;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at 70% 20%, rgba(255,255,255,.10), transparent 60%),
+        linear-gradient(160deg, var(--desktop), var(--desktop-2));
+}
+.noscript { color: #fff; padding: 24px; font-size: 14px; }
+
+/* ------------------------------ windows ------------------------------ */
+.jframe {
+    position: absolute;
+    min-width: 220px;
+    max-width: calc(100vw - 8px);
+    max-height: calc(100vh - 8px);
+    display: flex; flex-direction: column;
+    background: var(--panel);
+    border: 1px solid #4b5d73;
+    border-radius: 5px 5px 2px 2px;
+    box-shadow: 0 6px 22px rgba(0,0,0,.38);
+}
+.jframe-title {
+    display: flex; align-items: center; gap: 6px;
+    height: 24px; flex: none;
+    padding: 0 3px 0 5px;
+    background: linear-gradient(var(--title-1), var(--title-2));
+    border-bottom: 1px solid #6f87a3;
+    border-radius: 4px 4px 0 0;
+    cursor: move;
+    user-select: none;
+    touch-action: none;
+}
+.jframe-icon { width: 16px; height: 16px; image-rendering: pixelated; }
+.jframe-title-text { flex: 1; font-weight: bold; color: #10233a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jframe-close {
+    width: 20px; height: 18px; padding: 0; line-height: 15px;
+    font: bold 15px var(--font);
+    color: #233;
+    background: linear-gradient(var(--ocean-1), var(--ocean-3));
+    border: 1px solid var(--ocean-border); border-radius: 3px;
+    cursor: pointer;
+}
+.jframe-close:hover { background: linear-gradient(#ffe9e4, #f0a99a); }
+.jframe-content { padding: 10px 12px 12px; overflow: auto; flex: 1; }
+.jframe-menubar-slot:empty { display: none; }
+
+/* ------------------------------- menus ------------------------------- */
+.jmenubar {
+    display: flex; flex-wrap: wrap;
+    background: linear-gradient(#fafafa, #e3e3e3);
+    border-bottom: 1px solid #c4c4c4;
+    padding: 1px 2px;
+}
+.jmenu { position: relative; }
+.jmenu-button, .jmenuitem {
+    font: bold 12px var(--font);
+    color: var(--text);
+    background: none; border: 1px solid transparent;
+    padding: 3px 8px;
+    cursor: default;
+}
+.jmenu-button:hover, .jmenu.open > .jmenu-button { background: var(--ocean-2); border-color: var(--ocean-border); }
+.jmenu-popup {
+    display: none;
+    position: absolute; left: 0; top: 100%; z-index: 100000;
+    min-width: 220px;
+    background: #fff;
+    border: 1px solid var(--ocean-border);
+    box-shadow: 2px 3px 6px rgba(0,0,0,.25);
+    padding: 2px 0;
+}
+.jmenu.open > .jmenu-popup { display: block; }
+.jmenuitem { display: block; width: 100%; text-align: left; font-weight: normal; padding: 4px 16px; white-space: nowrap; }
+.jmenuitem:hover:not(.disabled), .jmenuitem:focus-visible:not(.disabled) { background: var(--ocean-sel); color: var(--ocean-sel-text); outline: none; }
+.jmenuitem.disabled { color: #9aa0a6; }
+.jmenu-separator { height: 1px; background: #d5d9de; margin: 3px 0; }
+
+/* ----------------------------- components ---------------------------- */
+.jlabel { font-weight: bold; }
+.jtitle { display: block; font-weight: bold; font-size: 13px; margin-bottom: 8px; }
+.jnote { color: var(--muted); font-weight: normal; }
+.jnote.warning { color: var(--warn); font-weight: bold; }
+.jrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 5px 0; }
+.jrow.jbuttons { justify-content: center; margin-top: 10px; }
+.jpanel {
+    border: 1px solid var(--panel-line);
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin: 0 0 8px;
+    min-width: 0;
+}
+.jpanel legend { font-weight: bold; padding: 0 4px; }
+.jtextfield, .jspinner, .jcombo {
+    font: 12px var(--font);
+    color: var(--text);
+    background: var(--field);
+    border: 1px solid var(--ocean-border);
+    padding: 2px 4px;
+    min-width: 0;
+}
+.jspinner { width: 60px; }
+.jcombo { max-width: 100%; padding: 2px; }
+.jtextfield:focus, .jspinner:focus, .jcombo:focus { outline: 2px solid var(--ocean-3); outline-offset: 0; }
+.jbutton {
+    font: bold 12px var(--font);
+    color: var(--text);
+    background: linear-gradient(var(--ocean-1), var(--ocean-2) 60%, var(--ocean-3));
+    border: 1px solid var(--ocean-border);
+    border-radius: 3px;
+    padding: 3px 14px;
+    cursor: pointer;
+}
+.jbutton:hover:not(:disabled) { background: linear-gradient(#fff, #e9f1f9 60%, #c7dbee); }
+.jbutton:active:not(:disabled) { background: var(--ocean-3); }
+.jbutton:disabled { color: #9aa0a6; cursor: default; background: #f1f1f1; border-color: #b9c0c8; }
+.jbutton.small { padding: 1px 8px; font-weight: normal; }
+.jbutton:focus-visible, .jmenu-button:focus-visible { outline: 2px solid var(--ocean-sel); outline-offset: 1px; }
+.jradio, .jcheckbox { display: inline-flex; align-items: center; gap: 3px; font-weight: bold; white-space: nowrap; }
+.jradio.disabled, .jcheckbox.disabled { color: #9aa0a6; }
+.jprogress {
+    position: relative;
+    flex: 1; min-width: 120px;
+    height: 16px;
+    background: #fff;
+    border: 1px solid var(--ocean-border);
+}
+.jprogress-fill { height: 100%; width: 0; background: linear-gradient(#9fb8de, var(--ocean-sel)); transition: width .15s; }
+.jprogress-text { position: absolute; inset: 0; text-align: center; font-size: 11px; line-height: 14px; color: #1d2c3d; }
+.swatch { display: inline-block; width: 11px; height: 11px; border: 1px solid #555; margin-right: 4px; vertical-align: -1px; }
+
+/* ------------------------------ dialogs ------------------------------ */
+.joption-veil {
+    position: fixed; inset: 0; z-index: 200000;
+    background: rgba(20,35,55,.25);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+}
+.joption { position: relative; max-width: min(560px, 100%); }
+.joption-body { display: flex; gap: 14px; padding: 16px 18px 8px; align-items: flex-start; }
+.joption-glyph {
+    flex: none; width: 34px; height: 34px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font: bold 20px Georgia, serif; color: #fff;
+    background: var(--ocean-sel);
+}
+.joption-glyph img { width: 48px; height: 48px; image-rendering: pixelated; }
+.joption-glyph:has(img) { width: auto; height: auto; border-radius: 0; background: none; }
+.joption-type-0 { background: #b8412b; }
+.joption-type-2 { background: #c98a12; }
+.joption-message { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
+.joption-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 14px 12px; }
+
+.jfilechooser { position: relative; width: min(640px, 100%); }
+.jfilechooser-body { padding: 8px 12px; max-height: 65vh; overflow: auto; }
+.jfilechooser-section { font-weight: bold; margin: 10px 0 4px; color: #23405f; border-bottom: 1px solid var(--panel-line); }
+.jfilechooser-entry {
+    display: block; width: 100%; text-align: left;
+    font: 12px var(--font); color: var(--text);
+    background: #fff; border: 1px solid #d7dde3; border-radius: 2px;
+    padding: 5px 8px; margin: 3px 0; cursor: pointer;
+}
+.jfilechooser-entry:hover, .jfilechooser-entry:focus-visible { background: var(--ocean-2); border-color: var(--ocean-border); outline: none; }
+.jfilechooser-name { display: block; font-weight: bold; }
+.jfilechooser-detail { display: block; color: var(--muted); margin-top: 2px; }
+.jfilechooser-empty { padding: 2px 4px; }
+
+/* ---------------------------- TelaInicial ---------------------------- */
+.telainicial .jframe-content { padding: 0; display: flex; flex-direction: column; }
+.telainicial-panel { width: 300px; height: 300px; max-width: 100%; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+.telainicial-icon { width: 200px; height: 200px; image-rendering: pixelated; }
+.telainicial-status { border-top: 1px solid #d0d4d8; padding: 3px 8px; color: var(--muted); font-size: 11px; max-width: 300px; }
+
+/* ----------------------------- SimulData ----------------------------- */
+.simuldata { text-align: center; max-width: 920px; }
+.simul-name { display: inline-flex; align-items: baseline; gap: 8px; border: 2px groove #ddd; padding: 2px 10px 4px; margin: 6px 0 10px; }
+.king-richard { font-family: "King Richard", "UnifrakturMaguntia", "Old English Text MT", serif; font-size: 24px; }
+.simul-name-value { font-weight: bold; }
+.simul-line { font-weight: bold; margin: 4px 0; }
+.simul-table-wrap { margin-top: 12px; overflow: auto; max-width: 100%; background: #fff; border: 1px solid #ccc; }
+.simul-table { border-collapse: collapse; font: 10px Arial, sans-serif; text-align: left; white-space: nowrap; }
+.simul-table th, .simul-table td { padding: 3px 8px; border-bottom: 1px solid #ddd; }
+.simul-table th { font-weight: normal; background: #fafafa; }
+.simul-table td:first-child { font-weight: bold; }
+
+/* ---------------------------- calculations --------------------------- */
+.calc-frame { width: min(520px, calc(100vw - 30px)); }
+
+/* ------------------------------ viewer ------------------------------- */
+.viewer { width: min(620px, calc(100vw - 30px)); }
+.viewer-controls .jrow { margin: 3px 0; }
+.viewer-range { flex: 1; min-width: 120px; }
+.viewer-num { min-width: 92px; font-variant-numeric: tabular-nums; }
+.viewer-axis { margin: 0; gap: 8px; }
+.viewer-canvas-wrap { margin-top: 8px; background: #1b1e22; border: 1px solid #555; display: flex; justify-content: center; align-items: center; min-height: 120px; padding: 2px; }
+.viewer-canvas { image-rendering: pixelated; cursor: crosshair; display: block; }
+.viewer-colorbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.viewer-colorbar:empty { display: none; }
+.viewer-colorbar-ramp { flex: 1; height: 12px; border: 1px solid #777; }
+.viewer-readout { margin-top: 4px; font-family: var(--mono); font-size: 11px; min-height: 15px; }
+.viewer-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 4px; font-size: 11px; }
+.viewer-legend-item { white-space: nowrap; }
+.viewer-chart-wrap { margin-top: 10px; background: #fff; border: 1px solid #ccc; padding: 6px; }
+.viewer-chart-title { font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+.viewer-chart { display: block; }
+.viewer-empty { padding: 30px 10px; text-align: center; color: var(--muted); }
+
+/* ------------------------------ results ------------------------------ */
+.resultsframe { width: min(640px, calc(100vw - 30px)); }
+.results-info { margin-bottom: 4px; }
+.results-list { max-height: 55vh; overflow: auto; background: #fff; border: 1px solid #ccc; margin-top: 6px; }
+.results-table { width: 100%; border-collapse: collapse; }
+.results-table th { text-align: left; background: #f3f5f7; position: sticky; top: 0; padding: 4px 6px; border-bottom: 1px solid #ccd; }
+.results-table td { padding: 3px 6px; border-bottom: 1px solid #eee; vertical-align: middle; }
+.results-path { font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.results-size { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+.results-actions { white-space: nowrap; text-align: right; }
+.results-actions .jbutton { margin-left: 3px; }
+.results-empty { padding: 16px; }
+
+/* ---------------------------- jpvm console --------------------------- */
+.jpvmconsole { width: min(680px, calc(100vw - 30px)); }
+.jpvm-pre {
+    margin: 0 0 6px; padding: 6px 8px;
+    background: #10161c; color: #c9e3c4;
+    font: 11px/1.4 var(--mono);
+    overflow: auto; white-space: pre;
+}
+.jpvm-log { height: 200px; white-space: pre-wrap; }
+
+/* -------------------------------- help ------------------------------- */
+.helpframe { display: flex; gap: 10px; width: min(820px, calc(100vw - 30px)); height: min(560px, calc(100vh - 80px)); }
+.help-left { width: 210px; flex: none; display: flex; flex-direction: column; }
+.help-tabs { display: flex; }
+.help-tab { font: bold 12px var(--font); background: #e4e7ea; border: 1px solid #b5bec8; border-bottom: none; padding: 3px 10px; cursor: pointer; }
+.help-tab.selected { background: #fff; }
+.help-tree { flex: 1; overflow: auto; background: #fff; border: 1px solid #b5bec8; padding: 6px; }
+.help-node { margin-left: 4px; }
+.help-node summary { cursor: pointer; font-weight: bold; }
+.help-leaf { display: block; background: none; border: none; text-align: left; font: 12px var(--font); padding: 2px 4px 2px 16px; cursor: pointer; color: #1f4f8a; }
+.help-leaf:hover, .help-leaf:focus-visible { background: var(--ocean-2); outline: none; }
+.help-letter { font-weight: bold; margin-top: 6px; }
+.help-text { flex: 1; overflow: auto; background: #fff; border: 1px solid #b5bec8; padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+.help-text h2 { margin-top: 0; font-size: 16px; }
+.help-text img { display: block; max-width: 100%; margin: 8px 0 12px; border: 1px solid #ccc; }
+.help-text code { font-family: var(--mono); font-size: 12px; background: #f2f4f6; padding: 0 3px; }
+.help-text .formula { font-family: var(--mono); font-size: 12px; background: #f6f7f8; padding: 6px 8px; overflow-wrap: anywhere; }
+.phoenix-note { border-left: 3px solid var(--ocean-sel); padding-left: 8px; color: #33465c; }
+
+/* ------------------------------- phones ------------------------------ */
+@media (max-width: 700px) {
+    body { overflow: auto; }
+    #desktop { height: auto; min-height: 100%; overflow: visible; padding: 8px 8px 40px; display: flex; flex-direction: column; gap: 10px; }
+    .jframe { position: relative; left: auto !important; top: auto !important; max-width: 100%; max-height: none; width: 100%; }
+    .jframe-title { cursor: default; }
+    .calc-frame, .viewer, .resultsframe, .jpvmconsole, .helpframe { width: 100%; }
+    .helpframe { flex-direction: column; height: auto; }
+    .help-left { width: 100%; max-height: 200px; }
+    .telainicial-panel { height: 220px; }
+    .telainicial-icon { width: 160px; height: 160px; }
+    .telainicial-status { max-width: none; }
+}
