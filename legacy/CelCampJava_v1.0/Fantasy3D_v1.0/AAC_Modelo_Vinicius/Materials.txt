@@ -1,0 +1,6 @@
+4
+1 255 255 255 Ar true true
+2 255 200 0 Cobre true true
+3 102 102 102 Plastico true true
+4 224 223 227 Default false false
+

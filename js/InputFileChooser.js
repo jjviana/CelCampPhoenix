@@ -21,19 +21,19 @@ const MODELS = new URL('../models/', import.meta.url);
 export async function fetchModelFile(name) {
     const resp = await fetch(new URL(name, MODELS));
     if (!resp.ok) throw new Error("O arquivo " + name + " nao foi encontrado!! (" + resp.status + ")");
-    if (name.endsWith('.gz')) {
-        const ds = resp.body.pipeThrough(new DecompressionStream('gzip'));
-        return new Uint8Array(await new Response(ds).arrayBuffer());
-    }
-    return new Uint8Array(await resp.arrayBuffer());
+    const bytes = new Uint8Array(await resp.arrayBuffer());
+    return gunzipIfNeeded(bytes);
+}
+
+/** Unzips gzip data (magic bytes 1f 8b); a server may already have done it (Content-Encoding). */
+async function gunzipIfNeeded(bytes) {
+    if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+    const ds = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(ds).arrayBuffer());
 }
 
 async function readLocal(file) {
-    if (file.name.endsWith('.gz')) {
-        const ds = file.stream().pipeThrough(new DecompressionStream('gzip'));
-        return new Uint8Array(await new Response(ds).arrayBuffer());
-    }
-    return new Uint8Array(await file.arrayBuffer());
+    return gunzipIfNeeded(new Uint8Array(await file.arrayBuffer()));
 }
 
 let manifest = null;

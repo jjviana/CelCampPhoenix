@@ -1,0 +1,53 @@
+Author     = Ana de Oliveira Rodrigues
+------
+Date       = 01/11/2006 
+----
+Version    = 1.0
+-------
+Model Name = John3Doe
+----------
+Comments   = "John Doe": a name used to represent a person in a hypothetical situation. (Compact Oxford English Dictionary)
+--------
+Datafile   = John3Doe.dat
+--------
+Dimentions = 151 x 259 x 259 (x, y, z)
+----------
+Cube Size  = 0.00186m x 0.00111m x 0.00111m (x, y, z)
+---------
+Materials
+---------
+ 1 Air
+ 2 Bone
+ 3 CSF
+ 4 Brain
+ 5 Skin
+ 6 Muscle
+ 7 Fat
+ 8 Sclera
+ 9 Anterior Chamber
+10 Crystallin
+11 Vitreous Body
+12 Cornea
+13 Iris
+14 Skinn II (neck)
+15 Hair
+16 Hypotalamus
+17 Copper (for sources)
+
+Description
+-----------
+The Datafile is a text file. Each number is in one line and represents one cube. 
+First it varies in the x axis, then in the y axis and finally in the z axis.
+In this way, the file would be like:
+
+1   (cube 0,0,0 filled with air)
+7   (cube 1,0,0 filled with fat)
+15  (cube 2,0,0 filled with hair)
+... (after 151 lines...)
+12  (cube 0,1,0 filled with cornea)
+9   (cube 1,1,0 filled with anterior chamber)
+... (after 151x256 lines...)
+8   (cube 0,0,1 filled with sclera)
+2   (cube 1,0,1 filled with bone)
+... (and so on..)
+17  (cube 150,256,256 filled with copper - last one)

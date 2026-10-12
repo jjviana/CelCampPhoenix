@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+
+
+<!-- Created by juliano on October 18, 2001, 2:15 PM -->
+
+<MaterialModel name="Valida2D-1layModel" dimention="81,81,81" deltas="0.015,0.015,0.015">
+      <materials>
+    <material code="1" color="0,0,0" name="Air" transparency="0" visible="false"></material>
+    <material code="2" color="255,255,255" name="Bone" transparency="0" visible="true"></material>
+    <material code="3" color="0,0,160" name="ERL" transparency="0" visible="true"></material>
+    <material code="4" color="255,255,0" name="Brain" transparency="0" visible="true"></material>
+    <material code="5" color="255,204,153" name="Skin" transparency="0" visible="true"></material>
+    <material code="6" color="255,100,100" name="Muscle" transparency="0" visible="true"></material>
+    <material code="7" color="255,255,204" name="Fat" transparency="0" visible="true"></material>
+    <material code="8" color="102,51,0" name="Sclera" transparency="0" visible="true"></material>
+    <material code="9" color="0,0,255" name="Anterior Chamber" transparency="0" visible="true"></material>
+    <material code="10" color="153,153,153" name="Cristalin" transparency="0" visible="true"></material>
+    <material code="11" color="153,255,204" name="Vitreous Body" transparency="0" visible="true"></material>
+    <material code="12" color="255,204,204" name="Cornea" transparency="0" visible="true"></material>
+    <material code="13" color="255,204,0" name="Coper" transparency="0" visible="true"></material>
+    <material code="14" color="255,0,0" name="Blood" transparency="0" visible="true"></material>
+    <material code="15" color="255,102,0" name="Brick" transparency="0" visible="true"></material>
+    <material code="16" color="255,255,255" name="Insulator" transparency="0" visible="true"></material>
+    <material code="17" color="200,200,200" name="Aluminium" transparency="0" visible="true"></material>
+    <material code="18" color="51,51,51" name="CastIron" transparency="0" visible="true"></material>
+    <material code="19" color="30,51,30" name="Steel" transparency="0" visible="true"></material>
+    <material code="20" color="255,255,255" name="Fat2" transparency="0" visible="true"></material>
+    <material code="21" color="255,255,255" name="Muscle2" transparency="0" visible="true"></material>
+      </materials>
+<datafile name="Valida2D-1layModel.dat" id="0001"></datafile>
+
+</MaterialModel>
+

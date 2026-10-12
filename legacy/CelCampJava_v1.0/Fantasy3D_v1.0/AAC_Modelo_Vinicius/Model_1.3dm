@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Created by Vinicius on May 02, 2005, 2:15 PM -->
+<MaterialModel name="Model_1" dimention="20,30,100" deltas="0.00328,0.00328,0.00328">
+<materials>
+<material code="1" color="255,255,255" name="Ar" transparency="0" visible="true"></material>
+<material code="2" color="255,200,0" name="Cobre" transparency="0" visible="true"></material>
+<material code="3" color="102,102,102" name="Plastico" transparency="0" visible="true"></material>
+<material code="4" color="224,223,227" name="Default" transparency="0" visible="true"></material>
+</materials>
+<datafile name="Model_1.dat" id="0001"></datafile>
+</MaterialModel>

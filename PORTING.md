@@ -83,4 +83,4 @@ They exist only in the web version and live in `js/phoenix/` and the **Tools** m
 - The MATLAB scripts.
 - The jpvm daemon/console internals (`jpvmDaemon.java` and friends): their role is played by `js/jpvm/jpvmDaemon.js`.
 
-The original archive's `Readme.txt` contains machine passwords, so it was not copied into this repository.
+The original program is kept in [`legacy/`](legacy/README.md), with the machine passwords of its `Readme.txt` removed.

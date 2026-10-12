@@ -1,0 +1,308 @@
+05/04/2007 11:00:49 com.logicstyle.mosaic.system.ApplicationRepository <init>
+INFO: Components initialization sucessfull.
+location=file:/home/juliano/AAA_AnaPermanente/CelCampJava_v1.0/results/SimulCube_21_21_21T.3df
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	450.0	450.0	450.0
+Number of vertices =10584
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	450.0	450.0	450.0
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	302.1850891113281	390.87403564453126	450.0
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	235.29331970214844	346.314240234375	450.0
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	196.71559143066406	311.09291918945314	444.4621887207031
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	172.4974822998047	282.36535498046874	432.39642333984375
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	156.06304931640625	258.4000126953125	414.5592041015625
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	144.3262176513672	238.07389721679687	392.7826843261719
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	135.55999755859375	220.62089624023437	368.9671936035156
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	128.78269958496094	205.49657080078126	344.6560974121094
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	123.38536834716797	192.29989575195313	320.8725280761719
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	118.9840087890625	180.72601831054686	298.26885986328125
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	115.32337188720703	170.53655810546874	277.1923828125
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	112.23096466064453	161.5404345703125	257.8030700683594
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	109.58573150634766	153.5811680908203	240.1303253173828
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	107.30104064941406	146.52830029296874	224.1292724609375
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	105.31289672851562	140.27142993164063	209.70974731445312
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	103.57293701171875	134.7160137939453	196.7598114013672
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	102.04359436035156	129.78033947753906	185.1581268310547
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	100.69503784179688	125.39325866699218	174.78294372558594
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	99.50302124023438	121.4924775390625	165.5166015625
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	98.44747924804688	118.02323291015625	157.24842834472656
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	97.51154327392578	114.93722534179688	149.87599182128906
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	96.68085479736328	112.1917490234375	143.3055877685547
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	95.94304656982422	109.74898669433594	137.45211791992188
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	95.2873764038086	107.57540881347656	132.23876953125
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	94.7044677734375	105.64124645996094	127.59645080566406
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	94.18611145019531	103.920064453125	123.46322631835938
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	93.72505187988281	102.38836486816406	119.78366088867188
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	93.31489562988281	101.02526190185547	116.50821685791016
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	92.9499740600586	99.81217578125	113.59266662597656
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	92.62528228759766	98.7325849609375	110.99758911132812
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	92.33635711669922	97.77179333496093	108.68782043457031
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	92.07925415039062	96.9167212524414	106.63204193115234
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.85045623779297	96.1557310180664	104.80236053466797
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.64684295654297	95.47847045898438	103.17391967773438
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.46564483642578	94.87572796630859	101.72460174560547
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.30438232421875	94.3392982788086	100.4347152709961
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.16087341308594	93.86189111328125	99.28672790527344
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	91.03314971923828	93.4370068359375	98.26502990722656
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.91947937011719	93.05886743164062	97.35572814941406
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.81831359863281	92.72233483886718	96.54646301269531
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.72828674316406	92.42282336425781	95.82623291015625
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.64815521240234	92.15626696777343	95.18524169921875
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.57685089111328	91.91903607177734	94.6147689819336
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.51338195800781	91.70790441894532	94.1070556640625
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.45690155029297	91.52000225830078	93.65520477294922
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.40663146972656	91.35277264404297	93.25305938720703
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.36189270019531	91.20394183349609	92.8951644897461
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.32208251953125	91.07148565673828	92.5766372680664
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.2866439819336	90.95360028076172	92.29315948486328
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.25511169433594	90.84868804931641	92.0408706665039
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.22704315185547	90.75531579589844	91.81632995605469
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.20206451416016	90.67221655273437	91.61650085449219
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.1798324584961	90.598259765625	91.43865966796875
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.16004943847656	90.53243896484375	91.28038024902344
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.14244079589844	90.47386059570313	91.13951110839844
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.12677001953125	90.42172717285156	91.01414489746094
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.11282348632812	90.37532928466797	90.9025650024414
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.10041046142578	90.33403442382813	90.80326843261719
+Number of vertices =600
+Model Statistics
+Material	Min	Avg	Max
+Air	90.0	90.0	90.0
+Steel	90.08936309814453	90.29728479003906	90.71488952636719
+Number of vertices =600

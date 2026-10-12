@@ -23,7 +23,8 @@ npm start            # = node serve.mjs, no dependencies
 # open http://localhost:8080/
 ```
 
-Any static server works (`npx http-server`, GitHub Pages, …).
+Any static server works (`npx http-server`, …). Every push to `main` is published to GitHub Pages by
+`.github/workflows/pages.yml`.
 
 Then, as in 2006: **File → New**, pick a model, and use **Calculate → Eletromagnetic Fields (EH)** or **Calculate → Temperature (T)**.
 
@@ -73,6 +74,7 @@ js/swing/                      the bits of javax.swing the frames use
 js/phoenix/                    new: results disk (OPFS), viewer, results window, jpvm console
 models/                        the models of CelCampJava_v1.0
 help/                          the 2006 help screenshots (baseTextos/)
+legacy/                        the original CelCampJava v1.0 source (April 2007)
 ```
 
 [PORTING.md](PORTING.md) lists every place where the port deliberately behaves differently from the 2007 code, and why.

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<FieldModel name="Cube_5_21_21_21" dimention="21,21,21" deltas="0.01,0.01,0.01" timesteps="10" units="(T [oC])">
+<data prefix="T_2.7_25.0_36.8_36.8_N" initialSufixCount="0" sufixIncrement="1"></data>
+<MaterialModel location ="SimulCube_5_21_21_21_2.7_25.0_36.8_36.8.3dm"></MaterialModel>
+</FieldModel>

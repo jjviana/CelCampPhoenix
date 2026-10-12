@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Created by Ana Rodrigues on September 28, 2005, 16:44 PM -->
+<MaterialModel name="Cube_5_21_21_21" dimention="21,21,21" deltas="0.01,0.01,0.01" frequency="1.8GHz" ><sources>
+<source type="puntual" location="21,21,20" maxValue="1.0" unit="default" hard="true"></source>
+</sources>
+<materials>
+<material code="1" color="0,0,0" name="Air" transparency="0.0" visible="false" muR="1.0" epR="1.0" si="0.0" siC="0.0" density="0.0016" C="0.28" k="0.0263" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="2" color="255,255,0" name="Brain" transparency="0.0" visible="true" muR="1.0" epR="41.0" si="0.86" siC="0.0" density="1030.0" C="1.02" k="0.528" bf="32760.0" hm="9.7"  e="0.0" kevap="0.0"  ></material>
+<material code="3" color="0,0,160" name="CSF" transparency="0.0" visible="true" muR="1.0" epR="78.1" si="2.12" siC="0.0" density="1010.0" C="1.056" k="0.57" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="4" color="255,255,0" name="Hypotalamus" transparency="0.0" visible="true" muR="1.0" epR="41.0" si="0.86" siC="0.0" density="1030.0" C="1.02" k="0.528" bf="32760.0" hm="9.7"  e="0.0" kevap="0.0"  ></material>
+<material code="5" color="255,204,0" name="Coper" transparency="0.0" visible="true" muR="1.0" epR="1.0" si="5.8E7" siC="0.0" density="8960.0" C="0.106" k="401.0" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="6" color="255,255,204" name="Fat" transparency="0.0" visible="true" muR="1.0" epR="11.3" si="0.11" siC="0.0" density="920.0" C="0.663" k="0.217" bf="1116.0" hm="0.15"  e="0.0" kevap="0.0"  ></material>
+<material code="7" color="255,100,100" name="Muscle" transparency="0.0" visible="true" muR="1.0" epR="54.99999999999999" si="0.94" siC="0.0" density="1040.0" C="1.014" k="0.5" bf="1296.0" hm="0.67"  e="0.0" kevap="0.0"  ></material>
+<material code="8" color="255,204,204" name="Cornea" transparency="0.0" visible="true" muR="1.0" epR="52.1" si="1.22" siC="0.0" density="1050.0" C="1.1606" k="0.58" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="9" color="153,255,204" name="VitBody" transparency="0.0" visible="true" muR="1.0" epR="67.9" si="1.68" siC="0.0" density="1030.0" C="1.1606" k="0.603" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="10" color="153,153,153" name="Cristalin" transparency="0.0" visible="true" muR="1.0" epR="51.3" si="0.89" siC="0.0" density="1100.0" C="0.833" k="0.4" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="11" color="102,51,0" name="Sclera" transparency="0.0" visible="true" muR="1.0" epR="54.9" si="1.17" siC="0.0" density="1020.0" C="1.167" k="0.5" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="12" color="0,0,255" name="AntChamber" transparency="0.0" visible="true" muR="1.0" epR="67.9" si="1.68" siC="0.0" density="1010.0" C="1.11" k="0.58" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="13" color="0,0,255" name="Iris" transparency="0.0" visible="true" muR="1.0" epR="54.99999999999999" si="0.94" siC="0.0" density="1040.0" C="1.014" k="0.5" bf="1296.0" hm="0.67"  e="0.0" kevap="0.0"  ></material>
+<material code="14" color="255,255,255" name="Bone" transparency="0.0" visible="true" muR="1.0" epR="21.0" si="0.32" siC="0.0" density="1990.0" C="0.4" k="0.36" bf="216.0" hm="0.15"  e="0.0" kevap="0.0"  ></material>
+<material code="15" color="255,204,153" name="Skin" transparency="0.0" visible="true" muR="1.0" epR="40.71" si="0.65" siC="0.0" density="1100.0" C="1.05" k="0.334" bf="33600.0" hm="1.07"  e="0.98" kevap="0.35"  ></material>
+<material code="16" color="255,204,153" name="NeckSkin" transparency="0.0" visible="true" muR="1.0" epR="40.71" si="0.65" siC="0.0" density="1100.0" C="1.05" k="0.334" bf="33600.0" hm="1.07"  e="0.0" kevap="0.0"  ></material>
+<material code="17" color="255,204,153" name="Skin+Hair" transparency="0.0" visible="true" muR="1.0" epR="40.71" si="0.65" siC="0.0" density="1100.0" C="1.05" k="0.187" bf="33600.0" hm="1.07"  e="0.98" kevap="0.35"  ></material>
+<material code="18" color="102,102,102" name="Plastic" transparency="0.0" visible="true" muR="1.0" epR="2.53" si="0.0" siC="0.0" density="940.0" C="0.513" k="0.46" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+<material code="19" color="102,102,102" name="Steel" transparency="0.0" visible="true" muR="1.0" epR="1.0" si="1.0E7" siC="0.0" density="8000.0" C="0.1167" k="46.0" bf="0.0" hm="0.0"  e="1.0" kevap="0.0"  ></material>
+<material code="20" color="0,0,0" name="Default" transparency="0.0" visible="true" muR="1.0" epR="1.0" si="0.0" siC="0.0" density="0.0016" C="0.28" k="0.0263" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>
+</materials>
+<datafile name="SimulCube_5_21_21_21_2.7_25.0_36.8_36.8.dat" id="0001"></datafile>
+</MaterialModel>

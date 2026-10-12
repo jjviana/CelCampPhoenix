@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!-- Created by Vinicius on May 02, 2005, 2:15 PM -->
+<MaterialModel name="Antena" dimention="20,30,100" deltas="0.003,0.003,0.003" frequency="900e6,1.8e9">
+<sources>
+<source type="puntual" location="17,42,114" maxValue="1" unit="V/m" hard="true"></source>
+<source type="puntual" location="17,42,116" maxValue="1" unit="V/m" hard="true"></source>
+<source type="puntual" location="17,42,118" maxValue="1" unit="V/m" hard="true"></source>
+<source type="puntual" location="17,42,120" maxValue="1" unit="V/m" hard="true"></source>
+</sources>
+<materials>
+<material code="1" color="0,0,0" name="Air,Ar" transparency="0" visible="true" 
+muR="1,1"   epR="1,1"    si="0,0" siC="0,0" density="0.0016"
+C="0.28"  k="0.0263"  bf="0"      hm="0"   e="0"        kevap="0"  >
+</material>
+<material code="2" color="255,255,0" name="Brain,Cerebro" transparency="0" visible="true" 
+muR="1,1"   epR="41,43.22"  si="0.86,1.29" siC="0,0" density="1030"
+C="1.02" k="0.528" bf="32760" hm="9.7"  e="0" kevap="0"  >
+</material>
+<material code="3" color="0,0,160" name="CSF,LER" transparency="0" visible="true" 
+muR="1,1"    epR="78.1,77.3" si="2.12,2.55" siC="0,0" density="1010"
+C="1.056" k="0.57" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="4" color="255,255,0" name="Hypotalamus,Hipotalamo" transparency="0" visible="true" muR="1,1" epR="41,42.33" si="0.86,1.29" siC="0,0" density="1030"
+C="1.02" k="0.528" bf="32760" hm="9.7"  e="0" kevap="0"  >
+</material>
+<material code="5" color="255,204,0" name="Coper,Cobre" transparency="0" visible="true"  
+muR="1,1" epR="1,1" si="5.8e7,5.8e7" siC="0,0" density="8960"
+C="0.106" k="401" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="6" color="255,255,204" name="Fat,Gordura" transparency="0" visible="true" 
+muR="1,1" epR="11.3,9.38" si="0.11,0.26" siC="0,0" density="920"
+C="0.663" k="0.217" bf="1116" hm="0.15"  e="0" kevap="0"  >
+</material>
+<material code="7" color="255,100,100" name="Muscle,Musculo" transparency="0" visible="true" muR="1,1" epR="55,49.41" si="0.94,1.64" siC="0,0" density="1040"
+C="1.014" k="0.5" bf="1296" hm="0.67"  e="0" kevap="0"  >
+</material>
+<material code="8" color="255,204,204" name="Cornea,Cornea" transparency="0" visible="true" muR="1,1" epR="52.1,73.9" si="1.22,2.21" siC="0,0" density="1050"
+C="1.1606" k="0.58" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="9" color="153,255,204" name="VitBody,CorpoVitreo" transparency="0" visible="true" muR="1,1" epR="67.9,73.9" si="1.68,2.21" siC="0,0" density="1030"
+C="1.1606" k="0.603" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="10" color="153,153,153" name="Cristalin,Cristalino" transparency="0" visible="true" muR="1,1" epR="51.3,42.02" si="0.89,1.15" siC="0,0" density="1100"
+C="0.833" k="0.4" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="11" color="102,51,0" name="Sclera,Esclera" transparency="0" visible="true" muR="1,1" epR="54.9,52.56" si="1.17,1.73" siC="0,0" density="1020"
+C="1.167" k="0.5" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="12" color="0,0,255" name="AntChamber,HumorAquoso" transparency="0" visible="true" muR="1,1" epR="67.9,67.15" si="1.68,2.14" siC="0,0" density="1010"
+C="1.110" k="0.58" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="13" color="0,0,255" name="Iris,Iris" transparency="0" visible="true" muR="1,1" epR="55,49.41" si="0.94,1.64" siC="0,0" density="1040"
+C="1.014" k="0.5" bf="1296" hm="0.67"  e="0" kevap="0"  >
+</material>
+<material code="14" color="255,255,255" name="Bone,Osso" transparency="0" visible="true" muR="1,1" epR="21,16.4" si="0.32,0.45" siC="0,0" density="1990" 
+C="0.4" k="0.36" bf="216" hm="0.15"  e="0" kevap="0"  >
+</material>
+<material code="15" color="255,204,153" name="Skin,Pele" transparency="0" visible="true" muR="1,1" epR="40.71,37.21" si="0.65,1.25" siC="0,0" density="1100"
+C="1.05" k="0.334" bf="33600" hm="1.07"  e="0.98" kevap="0.35"  >
+</material>
+<material code="16" color="255,204,153" name="NeckSkin,BasePescoco" transparency="0" visible="true" muR="1,1" epR="40.71,37.21" si="0.65,1.25" siC="0,0" density="1100"
+C="1.05" k="0.334" bf="33600" hm="1.07"  e="0" kevap="0"  >
+</material>
+<material code="17" color="255,204,153" name="Skin+Hair,Pele+Cabelo" transparency="0" visible="true" muR="1,1" epR="40.71,37.21" si="0.65,1.25" siC="0,0" density="1100"
+C="1.05" k="0.187" bf="33600" hm="1.07"  e="0.98" kevap="0.35"  >
+</material>
+<material code="18" color="102,102,102" name="Plastic,Polietireno" transparency="0" visible="true" muR="1,1" epR="2.53,2.53" si="0,0" siC="0,0" density="940"
+C="0.513" k="0.46" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+<material code="19" color="0,0,0" name="Default,Padrao" transparency="0" visible="true" muR="1,1" epR="1,1" si="0,0" siC="0,0" density="0.0016" 
+C="0.28" k="0.0263" bf="0" hm="0"  e="0" kevap="0"  >
+</material>
+</materials>
+<datafile name="Antena.dat" id="0001"></datafile>
+</MaterialModel>
