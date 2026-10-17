@@ -123,6 +123,7 @@ export class FDTD_T_slave {
             }
             const Xoffset = message.buffer.upkint(); // Phoenix (informative)
             const W = message.buffer.upkint();       // Phoenix: steps between steady-state checks (0 = off)
+            const conduction = message.buffer.upkint(); // Phoenix: 2010 (all tissues) or 2003 (same tissue only)
             //confirma que recebeu o tamanho:
             texto = "SLAVE::Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ") em X = " + Xoffset;
             tagAtual++;
@@ -224,6 +225,7 @@ export class FDTD_T_slave {
             // arrays reused by calculateGrads (2007 allocated them for every cube)
             const Air = new Array(6);
             const Tant = new Float64Array(6);
+            const Nb = new Int32Array(6);   // Phoenix: codes of the neighbours (2003 conduction)
 
             const model = ModeloLocal.getData();
             const w0 = plane, w1 = ModelZ;
@@ -349,7 +351,13 @@ export class FDTD_T_slave {
                             Tant[3] = YplusAir ? Tpoint : T1[p + w1];
                             Tant[4] = ZminusAir ? Tpoint : T1[p - 1];
                             Tant[5] = ZplusAir ? Tpoint : T1[p + 1];
-                            const conduction = FDTD_T_slave.calculateGrads(K, Tpoint, Tant, Air, dx, dy, dz);
+                            let conductionHeat;
+                            if (conduction === 2003) {
+                                Nb[0] = Xminus; Nb[1] = Xplus; Nb[2] = Yminus; Nb[3] = Yplus; Nb[4] = Zminus; Nb[5] = Zplus;
+                                conductionHeat = FDTD_T_slave.calculateGrads2003(code, K, Nb, Tpoint, Tant, dx, dy, dz);
+                            } else {
+                                conductionHeat = FDTD_T_slave.calculateGrads(K, Tpoint, Tant, Air, dx, dy, dz);
+                            }
                             //calor gerado pela SAR: (incluido em out/2008)
                             //======================
                             // O arquivo fornece o E^2
@@ -401,7 +409,7 @@ export class FDTD_T_slave {
                             }
                             //FDTD DA TEMPERATURA:
                             const Tatual = Tpoint +
-                                const1 * (cellVolume * (conduction + metabolism + hem + bloodCooling) +
+                                const1 * (cellVolume * (conductionHeat + metabolism + hem + bloodCooling) +
                                     (-radiation - convection - evaporation));
                             let Trise = 0;
                             Trise = Tatual - Ti[p];
@@ -553,6 +561,35 @@ export class FDTD_T_slave {
             grad += d * K * (Tplus - 2 * Tpoint + Tminus); //gA
         }
         return grad;
+    }
+
+    /**
+     * Phoenix: the conduction of the C program of the thesis (A. O.
+     * Rodrigues, 2003; Versao_em_C_final/Thermal/FDTDSimulator.cpp,
+     * ThermalPoint, Gandhi formulation).  Its k.lap(T) ("gradA") only uses
+     * the neighbours of the same tissue: the centred difference when both
+     * are, one side when only one is, nothing when none is.  So no heat
+     * crosses from one tissue to another (nor into the air, as in 2010).
+     *
+     * Left out: its grad(k).grad(T) ("gradB").  On the expanded grid of the C
+     * program a cube holds the points 2i and 2i+1, so it read
+     * (k - k-)(T - T-)/d^2 with the neighbour on the minus side: a term that
+     * pushes a cube away from the temperature of a neighbour of lower k.  With
+     * dtT = 1 s it diverges within a few hundred steps on John3Doe (and on
+     * Air_SmallHead), so it cannot be what produced the results of the thesis.
+     */
+    static calculateGrads2003(code, K, Nb, Tpoint, Tant, dx, dy, dz) {
+        let gA = 0;
+        for (let g = 0; g < 3; g++) {
+            const delta = g === 0 ? dx : (g === 1 ? dy : dz);
+            const d2 = delta * delta;
+            const sameM = Nb[2 * g] === code, sameP = Nb[2 * g + 1] === code;
+            const TM = Tant[2 * g], TP = Tant[2 * g + 1];
+            if (sameM && sameP) gA += (TP - 2 * Tpoint + TM) / d2;
+            else if (sameP) gA += (TP - Tpoint) / d2;
+            else if (sameM) gA += (TM - Tpoint) / d2;
+        }
+        return K * gA;
     }
 
     static par(i) { return (i % 2) === 0; }

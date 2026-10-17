@@ -17,6 +17,14 @@
  * that file: it is computed first when it does not exist yet or was made
  * for other conditions, and reused afterwards (one file per model, so one
  * for the full head and one for the Redux).
+ *
+ * Phoenix: CONDUCTION.  "2010" (the default) conducts heat to every
+ * neighbour that is not air, as CelCampJava does.  "2003" reproduces the C
+ * program of the thesis (Versao_em_C_final/Thermal/FDTDSimulator.cpp), where
+ * k.lap(T) only sees neighbours of the same tissue (one-sided at an
+ * interface): no heat crosses from one tissue to another (see
+ * FDTD_T_slave.calculateGrads2003).  Its steady state is saved apart, as
+ * results/<model>_Tinit_2003.
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -24,7 +32,7 @@ import { PvmUtil } from './PvmUtil.js';
 import { Field } from './Field.js';
 import { DecimalFormat, doubleToString } from './JavaFormat.js';
 import { JFrame, JOptionPane } from './swing/JFrame.js';
-import { hasDOM, el, JLabel, JTextField, JButton, JSpinner, JProgressBar, JCheckBox, panel, row } from './swing/swing.js';
+import { hasDOM, el, JLabel, JTextField, JButton, JSpinner, JProgressBar, JCheckBox, JComboBox, panel, row } from './swing/swing.js';
 import { ResultsDisk } from './phoenix/ResultsDisk.js';
 import { ResultsStore } from './phoenix/ResultsStore.js';
 import { InputFileChooser } from './InputFileChooser.js';
@@ -127,6 +135,8 @@ export class CalculateTFrameParallel extends JFrame {
         this.HenvText = new JTextField("2.7", 5);
         this.TbloodText = new JTextField("36.8", 5);
         this.TtissuesText = new JTextField("36.8", 5);
+        this.ConductionCombo = new JComboBox(CalculateTFrameParallel.CONDUCTIONS, CalculateTFrameParallel.CONDUCTIONS[0]);
+        this.ConductionCombo.setToolTipText("2010: heat flows to every neighbour that is not air (CelCampJava).  2003: only to neighbours of the same tissue, as in the C program of the thesis (Rodrigues 2003).");
         this.LoadTinitFileButton = new JButton("Tinit", () => this.LoadTinitFileButtonMouseClicked());
         this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a TN file of a previous run).");
         this.TinitLabel = new JLabel("", "jnote");
@@ -159,6 +169,7 @@ export class CalculateTFrameParallel extends JFrame {
             panel(null,
                 row("Tenv:  ", this.TenvText, "oC", "   hc :", this.HenvText, "W/m2.K"),
                 row("Tblood:  ", this.TbloodText, "oC", "   Ttissues:  ", this.TtissuesText, "oC", this.LoadTinitFileButton),
+                row("Conduction between tissues: ", this.ConductionCombo),
                 row(this.TinitLabel),
                 row(this.SARLabel)),
             panel(null,
@@ -173,6 +184,7 @@ export class CalculateTFrameParallel extends JFrame {
             panel(null, row(this.minimo, this.pBar, this.maximo), row(this.StatusLabel)),
             row(this.StartButton, this.CancelButton));
         cp.lastChild.classList.add('jbuttons');
+        this.ConductionCombo.el.addEventListener('change', () => this.showTinitPlan());
     }
 
     async LoadTinitFileButtonMouseClicked() {
@@ -236,6 +248,7 @@ export class CalculateTFrameParallel extends JFrame {
         this.Tenv = Number(this.TenvText.getText());
         this.Tblood = Number(this.TbloodText.getText());
         this.Ttissues = Number(this.TtissuesText.getText());
+        this.conduction = this.conductionScheme();
         if ([this.Henv, this.Tenv, this.Tblood, this.Ttissues].some(v => !isFinite(v))) {
             await JOptionPane.showMessageDialog(this, "Valores de temperatura invalidos!", "ERRO", JOptionPane.ERROR_MESSAGE);
             return;
@@ -267,12 +280,19 @@ export class CalculateTFrameParallel extends JFrame {
 
     /* ------------------------- Phoenix: TINIT -------------------------- */
 
-    tinitPath() { return this.PATH + "/results/" + this.SimulName + "_Tinit"; }
+    tinitPath() { return this.PATH + "/results/" + this.SimulName + "_Tinit" + (this.conductionScheme() === "2003" ? "_2003" : ""); }
+
+    static CONDUCTIONS = ["2010: to all tissues", "2003: same tissue only (thesis)"];
+
+    /** "2010" or "2003" (Phoenix: see CONDUCTION in the header). */
+    conductionScheme() { return this.ConductionCombo.getSelectedItem().slice(0, 4); }
 
     /** The conditions a steady state depends on. */
     tinitConditions() {
         const M = this.M;
-        return { dims: [M.x(), M.y(), M.z()], deltas: [this.dx, this.dy, this.dz], Tenv: this.Tenv, Tblood: this.Tblood, hc: this.Henv };
+        const c = { dims: [M.x(), M.y(), M.z()], deltas: [this.dx, this.dy, this.dz], Tenv: this.Tenv, Tblood: this.Tblood, hc: this.Henv };
+        if (this.conductionScheme() === "2003") c.conduction = "2003";
+        return c;
     }
 
     /** Reads results/<model>_Tinit when it was made for this grid and these conditions. */
@@ -286,7 +306,8 @@ export class CalculateTFrameParallel extends JFrame {
         } catch (e) { return null; }
         const c = this.tinitConditions();
         const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-        if (!same(info.dims, c.dims) || !same(info.deltas, c.deltas) || info.Tenv !== c.Tenv || info.Tblood !== c.Tblood || info.hc !== c.hc) return null;
+        if (!same(info.dims, c.dims) || !same(info.deltas, c.deltas) || info.Tenv !== c.Tenv || info.Tblood !== c.Tblood || info.hc !== c.hc ||
+            (info.conduction || "2010") !== (c.conduction || "2010")) return null;
         // made with a looser tolerance than the one asked for now: calculate it again
         const tol = Number(this.ToleranceText.getText()) / 100;
         if (tol > 0 && info.tolerance > tol * (1 + 1e-9)) return null;
@@ -589,6 +610,7 @@ export class CalculateTFrameParallel extends JFrame {
                 }
                 buf.pack(Xi); // Phoenix
                 buf.pack(W);  // Phoenix
+                buf.pack(this.conduction === "2003" ? 2003 : 2010); // Phoenix
                 jpvm.pvm_send(buf, tids[i], 22);
             }
             //confirma o recebimento do tamanho e dos deltas:
@@ -810,7 +832,7 @@ export class CalculateTFrameParallel extends JFrame {
             kind: 'T', name: this.SimulName + " (T" + (this.SARName && !suffix ? ", SAR" : "") + (suffix || "") + ")", dims: [M.x(), M.y(), M.z()],
             deltas: [this.dx, this.dy, this.dz], codes: M.getData(),
             materials: this.Mat.map(m => ({ code: m.code(), name: m.name(), color: [m.color().getRed(), m.color().getGreen(), m.color().getBlue()] })),
-            info: { dtT: this.dtT, N: this.max, skip: this.skip, NPROC: CalculateTFrameParallel.NPROC, Tenv: this.Tenv, hc: this.Henv, Tblood: this.Tblood, Ttissues: this.Ttissues, SAR: this.SARName },
+            info: { dtT: this.dtT, N: this.max, skip: this.skip, NPROC: CalculateTFrameParallel.NPROC, conduction: this.conduction, Tenv: this.Tenv, hc: this.Henv, Tblood: this.Tblood, Ttissues: this.Ttissues, SAR: this.SARName },
         });
     }
 }

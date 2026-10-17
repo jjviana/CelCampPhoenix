@@ -118,6 +118,10 @@ They exist only in the web version and live in `js/phoenix/` and the **View** an
   - **Antenna power:** for information, the end dialog also gives the power fed to the antenna, V·∮H·dl around the source cube averaged over the last period, and the power absorbed by the tissues. A 7 cm dipole in air at 1.8 GHz shows an input resistance of 84 Ω.
   - **Report file:** `results/<model>_SAR_<f>Hz.txt`.
 - **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
+- **Thesis 2003** button in **Place Dipole Antenna**: the antenna of the thesis (Rodrigues 2003, p. 59) and of MOMAG 2008. It is half-wave, along y, at 1.8 GHz, with the gap at cube (10, 121, 150) of John3Doe, 1.86 cm from the skin. On another grid (a Redux) it uses the same physical point.
+- **Conduction between tissues** in the T window: *2010* (default, CelCampJava) or *2003*, the C program of the thesis (`Versao_em_C_final/Thermal/FDTDSimulator.cpp`, `ThermalPoint`).
+  - **2003:** K∇²T only between cubes of the same tissue (one-sided at an interface), so no heat crosses from one tissue to another (`FDTD_T_slave.calculateGrads2003`). Its Tinit is saved apart, as `results/<model>_Tinit_2003`.
+  - **Left out:** the C program's ∇K·∇T. On its expanded grid it reads (K − K₋)(T − T₋)/Δ² toward the minus neighbour, which pushes a cube away from a neighbour of lower K. With 1 s steps it diverges within a few hundred steps on John3Doe and on Air_SmallHead.
 - **View → Results Folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
 - **View → Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
 - **JPVM → Console**: the old `jpvmConsole` `ps`, plus the slaves' log files.

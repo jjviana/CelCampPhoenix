@@ -57,6 +57,10 @@ from a file (for instance the last <code>TN&lt;n&gt;</code> file of a previous r
 This menu runs without the field (E&sup2; = 0). With <b>Run until steady state and save it as Tinit</b> (the default) it stops when the temperatures
 stop changing (change over a window below 0.01&nbsp;% of the change since the start, twice in a row) and saves them as <code>results/&lt;model&gt;_Tinit</code>,
 the starting point of SAR to Temperature. Results: <code>results/TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</p>
+<p><b>Conduction between tissues</b>: <i>2010</i> (the default) lets heat flow to every neighbour cube that is not air, as CelCampJava does.
+<i>2003</i> reproduces the C program of the thesis (Rodrigues 2003, <code>Versao_em_C_final</code>): K&nabla;&sup2;T only between cubes of the
+<i>same</i> tissue, so no heat crosses from one tissue to another. Its steady state is saved apart, as <code>results/&lt;model&gt;_Tinit_2003</code>.
+(The C program also had a &nabla;K&middot;&nabla;T term between tissues; as written it is unstable with 1&nbsp;s steps, so it is left out.)</p>
 <p>The steel cube model is the April/2007 validation: Tenv = 90, hc = 115, Ttissues = 450 (then with radiation off; since 2008 radiation is always on).</p>`,
     "SAR to Temperature (SAR->T)": `<h2>Calculate &rarr; SAR to Temperature</h2><p>Added in October 2008: asks for a file with E&sup2; for every cube
 (x outermost, z fastest) and runs the temperature calculation with the heat of the field, hem = &sigma;&middot;E&sup2;/2
@@ -66,7 +70,9 @@ yet (or was made for another Tenv, Tblood or hc) it is calculated first, then re
     "Place Dipole Antenna": `<h2>Tools &rarr; Place Dipole Antenna</h2><p>Writes a dipole into the open model: a wire of copper cubes along an axis,
 with a gap cube of air in the middle and a hard E source in the gap; the sources of the model are replaced by it.
 <b>Beside the head</b> proposes a half-wave dipole parallel to the longest side of the model, 1 cm from its surface
-(on the head: vertical, beside the ear). Place it after a Redux, not before.</p>`,
+(on the head: vertical, beside the ear). <b>Thesis 2003</b> sets the antenna of the thesis and of MOMAG 2008 on John3Doe:
+half-wave along y, 1.8 GHz, gap at cube (10, 121, 150), 1.86 cm from the skin (on a Redux, the same physical point).
+Place it after a Redux, not before.</p>`,
     "JPVM": `<h2>JPVM</h2>
 <p>In 2006 the calculations ran on a Java Parallel Virtual Machine: a <code>jpvmDaemon</code> on every computer, hosts added
 with <code>jpvmConsole</code>, and one JVM per slave. In the web version the virtual machine lives in the page: every slave
@@ -87,7 +93,8 @@ switches between the model and every calculation of the session.</p>`,
 Do this <i>before</i> placing the antenna: a one-cube wire placed earlier can fall between the cubes that Redux keeps.</li>
 <li><b>Place the phone antenna.</b> <b>Tools &rarr; Place Dipole Antenna&hellip;</b>
   <ul><li>Check the frequency (1.8 GHz by default).</li>
-  <li>Keep the proposal (beside the ear, vertical, half-wave, 1 cm from the skin) or press <b>Beside the head</b> to recompute it.</li>
+  <li>Keep the proposal (beside the ear, vertical, half-wave, 1 cm from the skin) or press <b>Beside the head</b> to recompute it.
+  <b>Thesis 2003</b> puts it where the thesis had it instead (gap at cube 10, 121, 150, 1.86 cm from the skin).</li>
   <li>Optionally set the gap voltage (default 1 V), then <b>Place &rarr; OK</b>.</li></ul></li>
 <li><b>Electromagnetic field.</b> <b>Calculate &rarr; Eletromagnetic Fields (EH)</b>
   <ul><li>Select the same frequency as the dipole.</li>
@@ -118,6 +125,7 @@ To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b
 <li><b>Calculated once, then reused.</b> It is calculated once per model: one for the full head (<code>John3Doe_v1_0_Tinit</code>), one for the Redux
 (<code>John3Doe_v1_0_redux_Tinit</code>). It stays in <code>results/</code> across sessions, and every later SAR run of that model reuses it.
 It does not depend on the dipole, which is not part of the thermal calculation.</li>
+<li><b>One per conduction scheme.</b> With <b>Conduction between tissues: 2003</b> the steady state is another one, saved as <code>&lt;model&gt;_Tinit_2003</code>.</li>
 <li><b>Calculating it in advance.</b> <b>Calculate &rarr; Temperature (T)</b> with <b>Run until steady state and save it as Tinit</b> ticked (the default) also writes it.</li>
 <li><b>Settings.</b> The window (600 steps), the tolerance (0.01&nbsp;%) and the maximum (36001 steps = 10 h) are in the T window.
 If the maximum comes first, there is a warning, no Tinit and no SAR run.</li>

@@ -439,3 +439,47 @@ test('E2 of a dipole run heats the tissues in SAR -> T (Tinit calculated first),
     assert.equal(maxDiff(last(oldRun), a), 0);
     ResultsStore.runs.length = 0;
 });
+
+test('2003 conduction (thesis C program): same tissue only in k.lap(T); equals 2010 inside one tissue', async () => {
+    const { FDTD_T_slave } = await import('../js/FDTD_T_slave.js');
+    const d = 1e-3, Air = [false, false, false, false, false, false];
+    const Tant = Float64Array.from([37, 36, 36.5, 36.9, 36.2, 36.4]);
+    const a = FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([2, 2, 2, 2, 2, 2]), 36.6, Tant, d, d, d);
+    const b = FDTD_T_slave.calculateGrads(0.5, 36.6, Tant, Air, d, d, d);
+    assert.ok(Math.abs(a - b) < 1e-9 * Math.abs(b), a + ' vs ' + b);
+    // every neighbour of another tissue: no conduction at all
+    assert.equal(FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([3, 3, 3, 3, 3, 3]), 36.6, Tant, d, d, d), 0);
+    // one neighbour of another tissue: one-sided difference towards the same tissue
+    const g = FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([3, 2, 2, 2, 2, 2]), 36.6, Tant, d, d, d);
+    const gA = ((36 - 36.6) + (36.5 - 2 * 36.6 + 36.9) + (36.2 - 2 * 36.6 + 36.4)) / (d * d);
+    assert.ok(Math.abs(g - 0.5 * gA) < 1e-9 * Math.abs(g), g + ' vs ' + 0.5 * gA);
+});
+
+test('SAR -> T with the 2003 conduction: own Tinit file, NPROC 1 = 3, and a different result from 2010', { timeout: 300000 }, async () => {
+    ResultsDisk.useMemory();
+    await ResultsDisk.removeAll();
+    const t = await load('Air_SmallHead.3dm');
+    const codes = t.model.getData();
+    const e2 = Array.from(codes, c => c === 1 ? 0 : 400).join(' ');
+    const run = async (scheme, NPROC) => {
+        const tf = await t.CalculateSAR_TMenuActionPerformed({ name: 'flat_E2', text: e2 });
+        tf.ConductionCombo.setSelectedItem(CalculateTFrameParallel.CONDUCTIONS[scheme === '2003' ? 1 : 0]);
+        tf.NProcSpinner.setValue(NPROC); tf.NField.setText('601'); tf.SkipText.setText('600'); tf.ToleranceText.setText('1');
+        await tf.StartButtonActionPerformed();
+        assert.equal(tf.errorJPVM, false);
+        return tf;
+    };
+    const new2003 = await run('2003', 3);
+    assert.equal(new2003.TinitSource, '/results/Air_SmallHead_Tinit_2003');
+    assert.equal(JSON.parse(await ResultsDisk.readText('results/Air_SmallHead_Tinit_2003.info')).conduction, '2003');
+    assert.equal(new2003.run.info.conduction, '2003');
+    const one = await run('2003', 1);
+    const last = (tf) => tf.run.snapshots[tf.run.snapshots.length - 1].fields.TRise;
+    assert.ok(maxDiff(last(one), last(new2003)) < 1e-9, 'NPROC 1 = 3');
+    const n2010 = await run('2010', 2);
+    assert.equal(n2010.TinitSource, '/results/Air_SmallHead_Tinit');
+    const r03 = last(new2003), r10 = last(n2010);
+    assert.ok(r03.every(Number.isFinite) && r10.every(Number.isFinite));
+    assert.ok(maxDiff(r03, r10) > 1e-6, 'the schemes differ');
+    ResultsStore.runs.length = 0;
+});

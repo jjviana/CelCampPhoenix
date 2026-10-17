@@ -37,6 +37,8 @@ export class DipoleFrame extends JFrame {
         this.InfoLabel = new JLabel("", "jnote");
         this.SuggestButton = new JButton("Beside the head", () => this.suggest());
         this.SuggestButton.setToolTipText("A half-wave dipole parallel to the longest side of the model, 1 cm from its surface, where a phone would be.");
+        this.ThesisButton = new JButton("Thesis 2003", () => this.thesis());
+        this.ThesisButton.setToolTipText("The antenna of Rodrigues (2003) and MOMAG 2008 for John3Doe: half-wave along y, gap at cube (10, 121, 150), 1.86 cm from the skin.");
         this.PlaceButton = new JButton("Place", () => this.place());
         this.CancelButton = new JButton("Cancel", () => this.dispose());
         if (!hasDOM) return;
@@ -48,7 +50,7 @@ export class DipoleFrame extends JFrame {
                 row("Gap cube ", this.XText, this.YText, this.ZText),
                 row("Length ", this.LengthText, "cubes (odd)   gap voltage ", this.VoltText, "V"),
                 row(this.InfoLabel)),
-            row(this.SuggestButton, this.PlaceButton, this.CancelButton));
+            row(this.SuggestButton, this.ThesisButton, this.PlaceButton, this.CancelButton));
         cp.lastChild.classList.add('jbuttons');
         for (const c of [this.AxisCombo, this.LengthText, this.FreqCombo]) c.el.addEventListener('change', () => this.updateInfo());
     }
@@ -113,6 +115,28 @@ export class DipoleFrame extends JFrame {
         const roomHi = n[side] - 1 - sHi, roomLo = sLo;
         c[side] = roomHi >= roomLo ? Math.min(n[side] - 3, sHi + gap) : Math.max(2, sLo - gap);
         this.AxisCombo.setSelectedItem("xyz"[axis]);
+        this.XText.setText(String(c[0])); this.YText.setText(String(c[1])); this.ZText.setText(String(c[2]));
+        this.LengthText.setText(String(L));
+        this.updateInfo();
+    }
+
+    /**
+     * The antenna of the thesis (A. O. Rodrigues, UFMG, 2003, p.59; MOMAG 2008):
+     * "A antena está posicionada em x=10 (1,86cm), y=121 (13,4cm) e z=150
+     * (16,7cm). O ponto da cabeça mais próximo da antena é de pele e está à
+     * uma distância de 10Δx (1,86cm)."  A half-wave dipole along y with its
+     * gap there.  The cube is given for John3Doe (1.86 x 1.11 x 1.11 mm); on
+     * another grid (e.g. Redux) the same physical point is used.
+     */
+    thesis() {
+        const d = this.deltas(), n = this.dims();
+        const at = [10 * 1.86e-3, 121 * 1.11e-3, 150 * 1.11e-3];
+        const c = at.map((v, a) => Math.max(1, Math.min(n[a] - 2, Math.round(v / d[a]))));
+        const f18 = this.tela.Freq.find(f => Math.abs(f - 1.8e9) < 1e6);
+        if (f18 !== undefined) this.FreqCombo.setSelectedItem(doubleToString(f18));
+        this.AxisCombo.setSelectedItem("y");
+        let L = Math.min(this.halfWaveCubes(1), 2 * Math.min(c[1] - 1, n[1] - 2 - c[1]) + 1);
+        if (L % 2 === 0) L--;
         this.XText.setText(String(c[0])); this.YText.setText(String(c[1])); this.ZText.setText(String(c[2]));
         this.LengthText.setText(String(L));
         this.updateInfo();
