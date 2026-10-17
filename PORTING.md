@@ -123,6 +123,19 @@ They exist only in the web version and live in `js/phoenix/` and the **View** an
   - **2003** follows the version of 25/03/2003 (`Versao_em_C/FDTDSimulator.cpp`, inside the Drive backup `CelCampJava_v1.0_ThermalOK_03042007.zip`), see `FDTD_T_slave.calculateGrads2003`. Its Tinit is saved apart, as `results/<model>_Tinit_2003`.
     - K∇²T only between cubes of the same tissue, one-sided at an interface.
     - ∇K·∇T only along x (the y and z terms are commented out): |K₊ − K|(T₊ − T)/Δx² + |K − K₋|(T₋ − T)/Δx², each half forced to carry heat from hot to cold, when both x neighbours are not air and K changes. So between tissues heat flows only along x, with the conductance |ΔK| instead of K.
+  - **Thesis reproduced.** Full head, 1.8 GHz, **Thesis 2003** antenna, field scaled to the thesis peak SAR (1.947 W/kg, i.e. 4.43 V at the gap, 71.5 mW fed, 16.9 mW absorbed), 60 min, heating by the field (T − T without SAR) in °C:
+
+    | Tissue | thesis (Table 6.8) | 2003 conduction | 2010 conduction |
+    |---|---|---|---|
+    | CSF | 0.041 | 0.041 | 0.021 |
+    | Bone | 0.040 | 0.039 | 0.022 |
+    | Muscle | 0.036 | 0.034 | 0.024 |
+    | Skin + hair | 0.032 | 0.028 | 0.026 |
+    | Skin | 0.028 | 0.025 | 0.024 |
+    | Brain | 0.018 | 0.013 | 0.018 |
+    | Fat | 0.005 | 0.006 | 0.004 |
+
+    All of them level off before 30 min, as in the thesis. With the default antenna (**Beside the head**, 1 cm from the skin, 3.0 mW absorbed at the same peak SAR) the maximum is 0.0085 °C (2010) and 0.013 °C (2003). The difference from the thesis came mostly from where the antenna was, and the rest from the 2003 conduction.
   - **Not used:** the later copy, `Versao_em_C_final` (2006, kept in `legacy/`). Its ∇K·∇T reads (K − K₋)(T − T₋)/Δ² on the expanded grid. That pushes a cube away from a neighbour of lower K and grows about 5× per simulated minute whatever the time step (1 s or 0.1 s), so it cannot have produced the thesis results.
 - **View → Results Folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
 - **View → Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
