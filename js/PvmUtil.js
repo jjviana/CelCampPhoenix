@@ -15,8 +15,6 @@ import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { Material, Color } from './Material.js';
 import { Source } from './Source.js';
 import { PuntualSource } from './PuntualSource.js';
-import { LinearSource } from './LinearSource.js';
-import { DipoleSource } from './DipoleSource.js';
 import { PlaneWaveSource } from './PlaneWaveSource.js';
 import { Field } from './Field.js';
 
@@ -132,6 +130,12 @@ export class PvmUtil {
 
     static _packSource(buf, S) {
         const Type = S.getType();
+        const Field = S.getField();
+        const Axis = S.getAxis();
+        let Plane = null;
+        if (Type.toLowerCase() === "planewave") {
+            Plane = S.getPlane();
+        }
         const Location = S.getLocation();
         const MaxValue = S.getMaxValue();
         const f = S.getF();
@@ -141,6 +145,10 @@ export class PvmUtil {
         if (HardSource) Hard = 1;
         else Hard = 0;
         buf.pack(Type);
+        buf.pack(Field);
+        buf.pack(Axis);
+        if (Type.toLowerCase() === "planewave")
+            buf.pack(Plane);
         buf.pack(Location.length);
         buf.pack(Location, Location.length, 1);
         buf.pack(MaxValue);
@@ -148,13 +156,15 @@ export class PvmUtil {
         buf.pack(f, f.length, 1);
         buf.pack(Unit);
         buf.pack(Hard);
-        // Phoenix: the 2007 version sent only the base Source fields, so a
-        // "linear" source arrived at the slaves as a single point.
-        buf.pack(JSON.stringify(S.extraParams()));
     }
 
     static _unpackSource(buf) {
         const Type = buf.upkstr();
+        const Field = buf.upkstr();
+        const Axis = buf.upkstr();
+        let Plane = null;
+        if (Type.toLowerCase() === "planewave")
+            Plane = buf.upkstr();
         const sizeLocation = buf.upkint();
         const Location = new Array(sizeLocation);
         buf.unpack(Location, 3, 1);
@@ -169,17 +179,11 @@ export class PvmUtil {
             HardSource = true;
         else
             HardSource = false;
-        const extra = JSON.parse(buf.upkstr());
-        const t = Type.toLowerCase();
-        if (t === "linear")
-            return new LinearSource(extra.axis, extra.field, extra.init, extra.end, Type, Location, MaxValue, f, Unit, HardSource);
-        if (t === "dipole")
-            return new DipoleSource(Type, Location, MaxValue, f, Unit, HardSource, extra.size, extra.axis);
-        if (t === "planewave")
-            return new PlaneWaveSource(Type, Location, MaxValue, f, Unit, HardSource, extra.axis);
-        if (t === "puntual")
-            return new PuntualSource(Type, Location, MaxValue, f, Unit, HardSource);
-        return new Source(Type, Location, MaxValue, f, Unit, HardSource);
+        if (Type.toLowerCase() === "puntual")
+            return new PuntualSource(Type, Field, Axis, Location, MaxValue, f, Unit, HardSource);
+        if (Type.toLowerCase() === "planewave")
+            return new PlaneWaveSource(Type, Field, Axis, Plane, Location, MaxValue, f, Unit, HardSource);
+        return new Source(Type, Field, Axis, Location, MaxValue, f, Unit, HardSource);
     }
 
     static sendSource(jpvmE, tids, S, ThisTag) {
@@ -226,10 +230,15 @@ export class PvmUtil {
         jpvmE.pvm_send(buf, tid, tagModel);
     }
 
-    static sendPartialTinit(jpvmE, tid, buf, Xi, Xf, ModelY, ModelZ, Tinit, tagModel) {
-        const start = Xi * Tinit.w0;
-        const end = (Xf + 1) * Tinit.w0;
-        buf.pack(Tinit.getData().subarray(start, end), end - start, 1);
+    /**
+     * 2008: the SAR (and the initial temperature) go to the thermal slaves
+     * like the model.  In 2010 the whole field went to the only slave; now
+     * each slave gets its planes Xi..Xf.
+     */
+    static sendPartialSAR(jpvmE, tid, buf, Xi, Xf, ModelY, ModelZ, SAR, tagModel) {
+        const start = Xi * SAR.w0;
+        const end = (Xf + 1) * SAR.w0;
+        buf.pack(SAR.getData().subarray(start, end), end - start, 1);
         jpvmE.pvm_send(buf, tid, tagModel);
     }
 
@@ -240,11 +249,11 @@ export class PvmUtil {
         M.setData(model, true);
     }
 
-    static unpackPartialTinit(buf, Tinit) {
-        const sizeData = Tinit.getSizeData();
-        const t = new Float64Array(sizeData);
-        buf.unpack(t, sizeData, 1);
-        Tinit.setData(t, true);
+    static unpackPartialSAR(buf, S) {
+        const sizeData = S.getSizeData();
+        const sar = new Float64Array(sizeData);
+        buf.unpack(sar, sizeData, 1);
+        S.setData(sar, true);
     }
 
     static sendMessageToParent(jpvmE, parent, message, ThisTag) {
@@ -367,18 +376,12 @@ export class PvmUtil {
         if (PvmUtil.out) PvmUtil.out(s); else console.log(s);
     }
 
-    static packBoolean(buf, b) {
-        let valor = 0;
-        if (b) valor = 1;
-        else valor = 0;
-        buf.pack(valor);
-    }
-    static unpackBoolean(buf) {
-        let b = false;
-        const valor = buf.upkint();
-        if (valor === 0) b = false;
-        else b = true;
-        return b;
+    /** 2010: appends to the task's "DEBUG:host:port.log". */
+    static log(myself, message) {
+        const logfile = ("DEBUG:" + myself.getHost() + ":" + myself.getPort() + ".log");
+        const env = jpvmEnvironment._workerEnv;
+        if (env) env.log(logfile, message + "\n", true);
+        else console.log(logfile + ": " + message);
     }
 }
 PvmUtil.out = null;

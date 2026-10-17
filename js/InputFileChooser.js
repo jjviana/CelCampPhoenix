@@ -163,7 +163,7 @@ export class InputFileChooser {
     }
 
     /** Chooses any text file. Resolves to { name, text } or null. */
-    static async chooseText(title, highlight) {
+    static async chooseText(title, highlight, bundled = 'tinit') {
         if (!hasDOM) return null;
         const man = await getManifest();
         let results = [];
@@ -171,7 +171,7 @@ export class InputFileChooser {
         const interesting = results.filter(f => !highlight || highlight.test(f.path));
         const choice = await listDialog(title, [
             { title: "Results folder (results/)", empty: "Nothing yet.", entries: interesting.map(f => ({ label: f.path, detail: fmtSize(f.size), value: { kind: 'results', path: f.path } })) },
-            { title: "Models (CelCampJava_v1.0/)", entries: (man.tinit || []).map(t => ({ label: t, value: { kind: 'bundled', file: t } })) },
+            { title: "Models (CelCampJava_v1.0/)", entries: (man[bundled] || []).map(t => ({ label: t, value: { kind: 'bundled', file: t } })) },
             { title: "This computer", entries: [{ label: "Open local file...", value: { kind: 'local' } }] },
         ]);
         if (!choice) return null;

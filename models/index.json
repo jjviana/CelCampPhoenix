@@ -4,13 +4,16 @@
       "file": "John3Doe_v1_0.3dm",
       "dat": "John3Doe_v1_0.dat.gz",
       "title": "John3Doe v1.0 - human head",
-      "description": "Head model by Ana de Oliveira Rodrigues (2006): 151 x 259 x 259 cubes of 1.86 x 1.11 x 1.11 mm, 19 tissues. About 10 million cubes: the temperature calculation is heavy, the EH calculation needs Tools \u2192 Redux Model first."
+      "description": "Head model by Ana de Oliveira Rodrigues (2006): 151 x 259 x 259 cubes of 1.86 x 1.11 x 1.11 mm, 19 tissues. Add a phone with Tools \u2192 Place Dipole Antenna; the EH calculation of the whole head needs about 2.3 GB (Tools \u2192 Redux Model for 8x less)."
     },
     {
       "file": "Cube_5_21_21_21.3dm",
       "title": "Cube_5_21_21_21 - steel cube",
-      "description": "5 x 5 x 5 steel cubes (1 cm) in air. The April/2007 validation case of the temperature calculation (Tenv = 90, hc = 115, Ttissues = 450, radiation off).",
-      "tinit": ["Cube_5_21_21_21_TN10_Tinit", "Cube_5_21_21_21_TN50_Tinit"]
+      "description": "5 x 5 x 5 steel cubes (1 cm) in air. The April/2007 validation case of the temperature calculation (Tenv = 90, hc = 115, Ttissues = 450; then with radiation off, which since 2008 means giving the steel emissivity 0).",
+      "tinit": [
+        "Cube_5_21_21_21_TN10_Tinit",
+        "Cube_5_21_21_21_TN50_Tinit"
+      ]
     },
     {
       "file": "Cube_21_21_21.3dm",
@@ -20,7 +23,7 @@
     {
       "file": "Air_21_21_21.3dm",
       "title": "Air_21_21_21 - empty space",
-      "description": "21 x 21 x 21 cubes of air with a point source: the 2006 test case of the EH calculation (Readme: 'abra e rode o caso de teste')."
+      "description": "21 x 21 x 21 cubes of air with a point source in the centre: the 2006 test case of the EH calculation (Readme: 'abra e rode o caso de teste')."
     },
     {
       "file": "Air_SmallHead.3dm",
@@ -28,5 +31,9 @@
       "description": "21 x 21 x 21 cubes with the deltas of the head model and a few cubes of skin, hair, bone, CSF and fat: a quick test for both calculations."
     }
   ],
-  "tinit": ["Cube_5_21_21_21_TN10_Tinit", "Cube_5_21_21_21_TN50_Tinit"]
+  "tinit": [
+    "Cube_5_21_21_21_TN10_Tinit",
+    "Cube_5_21_21_21_TN50_Tinit"
+  ],
+  "sar": []
 }

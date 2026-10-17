@@ -1,7 +1,7 @@
 /*
  * CalculateEHFrameParallel.js
  *
- * Created on 7 de Marco de 2006, 14:57   (CalculateEHFrameParallel.java)
+ * Created on 7 de Marco de 2006, 14:57   (CalculateEHFrameParallel.java, version of 2010)
  * Ported to JavaScript in 2026 (CelCamp Phoenix).
  *
  * @author  Ana de Oliveira Rodrigues
@@ -10,29 +10,42 @@
  * The window that starts the parallel FD-TD calculation of the electric (E)
  * and magnetic (H) fields, and the master side of the calculation: it
  * spawns the FDTD_slave tasks, sends each one its slice of the expanded
- * model, collects the partial fields and writes the results.
+ * model, collects |E| at the cube centres and writes the results.
+ *
+ * Since 2008 the time step (dt), the number of steps (N) and how often to
+ * save (reduzN) come from the .3dm file; the window shows them and lets
+ * them be changed.
+ *
+ * Phoenix notes:
+ *  - in 2010 NPROC was fixed at 1 (the parallel exchange did not work with
+ *    the new H-then-E order; see FDTD_slave).  It can be chosen again;
+ *  - the sources can be edited here (in 2010 only in the .3dm file);
+ *  - "Record E^2" makes the slaves average |E|^2 over the last period and
+ *    writes it in the format read by "SAR to Temperature" (2010 read that
+ *    file, but nothing in CelCampJava wrote it).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
 import { PvmUtil } from './PvmUtil.js';
 import { Field } from './Field.js';
-import { DecimalFormat, doubleToString } from './JavaFormat.js';
+import { doubleToString } from './JavaFormat.js';
 import { JFrame, JOptionPane } from './swing/JFrame.js';
-import { hasDOM, el, JLabel, JTextField, JButton, JRadioButton, ButtonGroup, JSpinner, JProgressBar, JCheckBox, panel, row } from './swing/swing.js';
+import { hasDOM, el, JLabel, JTextField, JButton, JRadioButton, ButtonGroup, JSpinner, JProgressBar, JCheckBox, JComboBox, panel, row } from './swing/swing.js';
 import { ResultsDisk } from './phoenix/ResultsDisk.js';
 import { ResultsStore } from './phoenix/ResultsStore.js';
 
 const TAG_ACK = 905; // Phoenix: see FDTD_slave
+const TAG_E2 = 950;
 
 export class CalculateEHFrameParallel extends JFrame {
 
     /**
      * Paralelizacao
      */
-    static NPROC = 3; //3
+    static NPROC = 1; //3
 
     /** Creates new form CalculateEHFrameParallel */
-    constructor(GridSizeX, GridSizeY, GridSizeZ, SName, s, m, mat, Nmat, path) {
+    constructor(GridSizeX, GridSizeY, GridSizeZ, SName, s, m, mat, Nmat, path, dT, N, ReduzN) {
         super("Calculate EH (Parallel)");
         this.errorJPVM = false;
         this.gridSizeX = GridSizeX;
@@ -40,7 +53,7 @@ export class CalculateEHFrameParallel extends JFrame {
         this.gridSizeZ = GridSizeZ;
         this.dx = 0; this.dy = 0; this.dz = 0;
         this.SimulName = SName || "Default";
-        this.max = 0;
+        this.Nmax = 0;
         this.min = 0;
         this.dt = 0.0;
         this.f = 0.0;
@@ -57,12 +70,14 @@ export class CalculateEHFrameParallel extends JFrame {
         this.FIndex = 0;
         this.fbuttons = null;
         this.skip = 1;
+        this.reduzN = 1;
         this.tcalc = null;
         this.stopThread = false;
         this.EHCalculated = false;
         this.tids = null;
         this.jpvm = null;
         this.run = null;           // Phoenix: snapshots for the viewer
+        this.E2file = null;        // Phoenix: the E^2 file written at the end
         this.onFinished = null;    // Phoenix: callback (run) => void
 
         this.initComponents();
@@ -70,6 +85,12 @@ export class CalculateEHFrameParallel extends JFrame {
         this.setModel(m, Nmat);
         this.setMaterials(mat);
         this.setJPVM();
+        this.dt = dT;
+        this.DTField.setText("" + doubleToString(this.dt));
+        this.Nmax = N;
+        this.NField.setText("" + N);
+        this.reduzN = ReduzN;
+        this.SkipText.setText("" + this.reduzN);
     }
 
     setF(freq) {
@@ -89,35 +110,43 @@ export class CalculateEHFrameParallel extends JFrame {
     }
 
     setSource(s) {
-        this.S = s;
-        // Phoenix: the sources can be moved here (in 2007 only by editing the .3dm)
+        this.S = s || [];
+        // Phoenix: the sources can be changed here (in 2010 only by editing the .3dm)
         this.SourceFields = [];
         if (!this.SourcesPanel) return;
+        const cx = (this.gridSizeX - 1) / 2, cy = (this.gridSizeY - 1) / 2, cz = (this.gridSizeZ - 1) / 2;
         this.SourcesPanel.innerHTML = '';
-        this.SourcesPanel.appendChild(el('legend', null, 'Sources (expanded grid: 0..' + (this.gridSizeX - 1) + ', 0..' + (this.gridSizeY - 1) + ', 0..' + (this.gridSizeZ - 1) + ')'));
-        s.forEach((src, i) => {
+        this.SourcesPanel.appendChild(el('legend', null, 'Sources (cube 0..' + (cx - 1) + ', 0..' + (cy - 1) + ', 0..' + (cz - 1) + ')'));
+        if (!this.S.length) this.SourcesPanel.appendChild(el('div', 'jnote', 'No sources in this model: add one with Tools → Place Dipole Antenna.'));
+        this.S.forEach((src, i) => {
             const L = src.getLocation();
-            const f = { x: new JTextField(String(L[0]), 4), y: new JTextField(String(L[1]), 4), z: new JTextField(String(L[2]), 4), max: new JTextField(doubleToString(src.getMaxValue()), 6) };
+            const f = {
+                field: new JComboBox(["E", "H"], src.getField().toUpperCase()),
+                axis: new JComboBox(["x", "y", "z"], src.getAxis().toLowerCase()),
+                x: new JTextField(String(L[0]), 3), y: new JTextField(String(L[1]), 3), z: new JTextField(String(L[2]), 3),
+                max: new JTextField(doubleToString(src.getMaxValue()), 6),
+            };
             this.SourceFields.push(f);
-            const kind = Field.isE(L[0], L[1], L[2]) ? "E" : Field.isH(L[0], L[1], L[2]) ? "H" : "-";
-            this.SourcesPanel.appendChild(row((i + 1) + ") " + src.getType() + (src.isHard() ? " (hard)" : ""), "x", f.x, "y", f.y, "z", f.z, "max", f.max, src.getUnit()));
-            this.SourcesPanel.lastChild.title = "The parity of (x,y,z) decides the component: odd/even/even = Ex, even/odd/odd = Hx, etc. Now on a" + (kind === "-" ? " point with no field component" : "n " + kind + " point") + ".";
+            this.SourcesPanel.appendChild(row((i + 1) + ") " + src.getType() + (src.isHard() ? " (hard)" : ""), f.field.el ? f.field : null, f.axis.el ? f.axis : null,
+                "cube", f.x, f.y, f.z, "max", f.max, src.getUnit()));
         });
     }
 
     /** Phoenix: reads the source fields back into the Source objects. */
     async readSources() {
+        const lim = [(this.gridSizeX - 1) / 2, (this.gridSizeY - 1) / 2, (this.gridSizeZ - 1) / 2];
         for (let i = 0; i < this.SourceFields.length; i++) {
             const f = this.SourceFields[i];
             const L = [f.x, f.y, f.z].map(t => parseInt(t.getText(), 10));
             const max = Number(f.max.getText());
-            const lim = [this.gridSizeX, this.gridSizeY, this.gridSizeZ];
             if (L.some((v, a) => !(v >= 0 && v < lim[a])) || !isFinite(max)) {
                 await JOptionPane.showMessageDialog(this, "Fonte " + (i + 1) + " fora do modelo!", "ERRO NA FONTE", JOptionPane.ERROR_MESSAGE);
                 return false;
             }
             this.S[i].setLocation(L);
             this.S[i].setMaxValue(max);
+            this.S[i].setField(f.field.getSelectedItem());
+            this.S[i].setAxis(f.axis.getSelectedItem());
         }
         return true;
     }
@@ -126,12 +155,6 @@ export class CalculateEHFrameParallel extends JFrame {
         this.M = m;
         this.NMat = nm;
         this.dx = m.dx(); this.dy = m.dy(); this.dz = m.dz();
-        const c = 3e8;
-        const InvertDeltas = 1 / (this.dx * this.dx) + 1 / (this.dy * this.dy) + 1 / (this.dz * this.dz);
-        const MinDT = 1 / (2 * c * Math.sqrt(InvertDeltas));
-        const DF = new DecimalFormat("0.000E00");
-        this.DTField.setText("" + DF.format(MinDT));
-        this.dt = MinDT;
         this.updateMemoryEstimate();
     }
 
@@ -153,7 +176,7 @@ export class CalculateEHFrameParallel extends JFrame {
         this.maximo.setText("" + max);
         this.pBar.setMaximum(max);
         this.min = min;
-        this.max = max;
+        this.Nmax = max;
     }
     setBar(i) {
         this.pBar.setValue(i);
@@ -170,15 +193,19 @@ export class CalculateEHFrameParallel extends JFrame {
         const MinDT = 1 / (c * Math.sqrt(InvertDeltas));
         if (!(this.dt > 0) || this.dt > MinDT) {
             this.dt = MinDT;
+            this.DTField.setText(doubleToString(this.dt));
             await JOptionPane.showMessageDialog(this, "Delta T menor do que o minimo! Alterado para " + this.dt + "s !", "ERRO NO Delta T", JOptionPane.ERROR_MESSAGE);
+            console.log("Delta T menor do que o minimo! Alterado para " + this.dt + "s !");
+        } else {
+            console.log("** CalculateEHFramePrallel::TestDT():: Delta T = " + this.dt);
         }
     }
 
     /**
-     * Phoenix: the X partition. In 2007 every slave got (tamanhoOriginal/NPROC)
-     * cubes and the program exited when that was not an integer
-     * ("PARALELIZACAO NO X NAO E' POSSIVEL..."). Now the cubes are spread as
-     * evenly as possible; when NPROC divides them the result is the same.
+     * Phoenix: the X partition.  The 2010 formula (tamModelo-1)*i only worked
+     * for NPROC=1.  The cubes are spread as evenly as possible, and every
+     * slice has at least 2 cubes (so the Mur boundary of the x faces never
+     * reads the plane shared with a neighbour).
      * Returns [Xi, Xf] (expanded grid, inclusive) for slave i.
      */
     static partition(TX, NPROC, i) {
@@ -188,15 +215,15 @@ export class CalculateEHFrameParallel extends JFrame {
         return [Xi, Xf];
     }
 
-    /** Phoenix: memory needed by the calculation (3 fields in the slaves + 1 in the master). */
+    /** Phoenix: memory needed by the calculation (3 Float32 fields + the model in the slaves). */
     updateMemoryEstimate() {
         if (!this.M || !this.MemLabel) return;
         const points = this.M.x() * this.M.y() * this.M.z();
-        const bytes = points * 8 * 4 + points;
+        const bytes = points * (3 * 4 + 1);
         const mb = bytes / (1024 * 1024);
         this.MemLabel.setText("Memory needed ≈ " + (mb > 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.ceil(mb) + " MB") +
             " (" + this.M.x() + "×" + this.M.y() + "×" + this.M.z() + " points)");
-        if (this.MemLabel.el) this.MemLabel.el.classList.toggle('warning', mb > 1500);
+        if (this.MemLabel.el) this.MemLabel.el.classList.toggle('warning', mb > 2500);
     }
 
     /** This method is called from within the constructor to initialize the form. */
@@ -204,18 +231,21 @@ export class CalculateEHFrameParallel extends JFrame {
         this.FreqButtonGroup = new ButtonGroup();
         this.CCAButtonGroup = new ButtonGroup();
         this.jLabel1 = new JLabel("EH Simulation Parameters (Parallel):", "jtitle");
-        this.NField = new JTextField("61", 7);
+        this.NField = new JTextField("0", 7);
         this.DTField = new JTextField("5e-12", 10);
         this.SkipText = new JTextField("1", 5);
         this.NProcSpinner = new JSpinner(Math.max(1, Math.min(8, (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) ? navigator.hardwareConcurrency - 1 : 3)), 1, 64);
+        this.NProcSpinner.setToolTipText("Fixed at 1 in 2010; the slaves exchange their borders correctly again.");
         this.Mur1RadioButton = new JRadioButton("Mur 1st Order", true);
         this.Mur2RadioButton = new JRadioButton("Mur 2nd Order");
         this.PMLRadioButton = new JRadioButton("PML");
-        this.Mur2RadioButton.setToolTipText("Mur2aOrdem() was left commented out in 2007: behaves as 1st order.");
-        this.PMLRadioButton.setToolTipText("PML was never implemented: the boundary stays at zero (a perfect conductor).");
+        this.Mur2RadioButton.setToolTipText("Mur2aOrdem() was still commented out in 2010: behaves as 1st order.");
+        this.PMLRadioButton.setToolTipText("PML was never implemented: the minimum faces stay at zero, the maximum faces still get Mur.");
         this.CCAButtonGroup.add(this.Mur1RadioButton);
         this.CCAButtonGroup.add(this.Mur2RadioButton);
         this.CCAButtonGroup.add(this.PMLRadioButton);
+        this.RecordE2CheckBox = new JCheckBox("Record E² over the last period (for SAR → T)", true);
+        this.RecordE2CheckBox.setToolTipText("Averages |E|² at every cube over the last period of the run and writes results/<name>_E2_<f>Hz, the file read by Calculate → SAR to Temperature.");
         this.WriteFilesCheckBox = new JCheckBox("Write result files to results/", true);
         this.MemLabel = new JLabel("", "jnote");
         this.minimo = new JLabel("1");
@@ -239,6 +269,7 @@ export class CalculateEHFrameParallel extends JFrame {
                 row("Save each ", this.SkipText, " timesteps"),
                 row("NPROC =", this.NProcSpinner, el('span', 'jnote', "(Web Workers)")),
                 row("CCA: ", this.Mur1RadioButton, this.Mur2RadioButton, this.PMLRadioButton),
+                row(this.RecordE2CheckBox),
                 row(this.WriteFilesCheckBox),
                 row(this.MemLabel)),
             this.SourcesPanel = panel(null),
@@ -252,20 +283,22 @@ export class CalculateEHFrameParallel extends JFrame {
         this.CancelButton.setEnabled(true);
         this.stopThread = false;
         const Nstring = this.NField.getText();
-        this.max = parseInt(Nstring, 10);
+        const N = parseInt(Nstring, 10);
         this.skip = parseInt(this.SkipText.getText(), 10);
-        if (!(this.max > 0) || !(this.skip > 0)) {
+        const back = () => { this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false); };
+        if (!(N > 0) || !(this.skip > 0)) {
             await JOptionPane.showMessageDialog(this, "N e skip devem ser inteiros positivos!", "ERRO", JOptionPane.ERROR_MESSAGE);
-            this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
-            return;
+            return back();
         }
-        if (!(await this.readSources())) {
-            this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
-            return;
+        if (!this.S.length) {
+            await JOptionPane.showMessageDialog(this, "O modelo nao tem fontes!\n(Tools → Place Dipole Antenna)", "ERRO NA FONTE", JOptionPane.ERROR_MESSAGE);
+            return back();
         }
+        if (!(await this.readSources())) return back();
+        this.Nmax = N + 1;  // n = 0 .. N
         CalculateEHFrameParallel.NPROC = this.NProcSpinner.getValue() || 1;
         ResultsDisk.enabled = this.WriteFilesCheckBox.isSelected();
-        this.setMaxMin(0, this.max);
+        this.setMaxMin(0, this.Nmax);
         await this.TestDT();
         for (let b = 0; b < this.Freq.length; b++) {
             if (this.fbuttons[b].isSelected()) {
@@ -282,7 +315,7 @@ export class CalculateEHFrameParallel extends JFrame {
             this.CCAtype = 'p'; this.CCAorder = 1; CCA = "PML Boundary Condition";
         }
         console.log("*** CCA = " + CCA);
-        console.log("*** Calculando os campos eletrico (E) e magnetico (H) por " + this.max + " instantes de tempo com DeltaT=" + this.dt + "s ...");
+        console.log("*** Calculando os campos eletrico (E) e magnetico (H) por " + this.Nmax + " instantes de tempo com DeltaT=" + this.dt + "s ...");
         // 2006: new Thread(...).start()  ->  an async task
         this.tcalc = this.CalculateEHParallel();
         return this.tcalc;
@@ -302,28 +335,25 @@ export class CalculateEHFrameParallel extends JFrame {
         }
     }
 
-    async CalculateEHParallel() {
-        let frequencia;
-        if (this.FIndex === 0)
-            frequencia = "900MHz";
-        else if (this.FIndex === 1)
-            frequencia = "1,8GHz";
-        else
-            frequencia = " INVALIDA!!! ";
-        console.log("*** Valor da Frequencia = " + frequencia);
+    /** Phoenix: number of steps of one period, averaged by "Record E^2". */
+    periodSteps() {
+        return Math.max(1, Math.round(1 / (this.f * this.dt)));
+    }
 
+    async CalculateEHParallel() {
         const NPROC = CalculateEHFrameParallel.NPROC;
         let tagAtual = 12344;
         const comecou = new Date();
         const TX = this.gridSizeX;
         const tamanhoOriginal = (TX - 1) / 2;
-        if (NPROC > tamanhoOriginal) {
-            const t = "*** PARALELIZACAO NO X NAO E' POSSIVEL POR CAUSA DO TAMANHO DO MODELO!\n*** TX = " + TX + "  NPROC = " + NPROC;
+        if (tamanhoOriginal / NPROC < 2) {
+            const t = "*** PARALELIZACAO NO X NAO E' POSSIVEL POR CAUSA DO TAMANHO DO MODELO!\n*** TX = " + TX + "  NPROC = " + NPROC + "\n(every slave needs at least 2 cubes)";
             console.log(t);
             await JOptionPane.showMessageDialog(this, t, "Error", JOptionPane.ERROR_MESSAGE);
             this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
             return;
         }
+        const nRecordE2 = this.RecordE2CheckBox.isSelected() ? Math.min(this.periodSteps(), this.Nmax) : 0;
         this.errorJPVM = false;
         let jpvm = null;
         try {
@@ -371,8 +401,8 @@ export class CalculateEHFrameParallel extends JFrame {
                 buf = new jpvmBuffer();
                 buf.pack(i);
                 buf.pack(NPROC);
-                buf.pack(this.max);
-                buf.pack(this.skip); // Phoenix
+                buf.pack(this.Nmax);
+                buf.pack(this.skip);
                 jpvm.pvm_send(buf, tids[i], 11);
             }
             //confirma o recebimento:
@@ -388,8 +418,6 @@ export class CalculateEHFrameParallel extends JFrame {
             for (let i = 0; i < NPROC; i++) {
                 const [Xi, Xf] = CalculateEHFrameParallel.partition(TX, NPROC, i);
                 const tamModelo = Xf - Xi + 1;
-                if (tamModelo % 2 !== 1)
-                    console.log(" *** ERRO!! TamModelo nao gera cubos inteiros!!");
                 buf = new jpvmBuffer();
                 buf.pack(tamModelo);
                 buf.pack(ModelY);
@@ -398,9 +426,12 @@ export class CalculateEHFrameParallel extends JFrame {
                 buf.pack(this.dy);
                 buf.pack(this.dz);
                 buf.pack(this.dt);
+                buf.pack(this.FIndex);
                 buf.pack(this.CCAtype);
                 buf.pack(this.CCAorder);
-                buf.pack(Xi); // Phoenix
+                buf.pack(Xi);        // Phoenix
+                buf.pack(ModelX);    // Phoenix
+                buf.pack(nRecordE2); // Phoenix
                 jpvm.pvm_send(buf, tids[i], 22);
             }
             //confirma o recebimento do tamanho e dos deltas:
@@ -437,11 +468,12 @@ export class CalculateEHFrameParallel extends JFrame {
 
             this.run = this.newResultsRun();
             const vI = 0.0;
-            const FieldAtual = new Field(ModelX, ModelY, ModelZ, "EH", vI);
+            const cx = (ModelX - 1) / 2, cy = (ModelY - 1) / 2, cz = (ModelZ - 1) / 2;
+            const FieldAtual = new Field(cx, cy, cz, "|E|", vI);   // Phoenix: |E| per cube
             const t0 = performance.now();
-            for (let cont = 0; cont < this.max; cont++) {
+            for (let cont = 0; cont < this.Nmax; cont++) {
                 let n = 0;
-                const save = (cont % this.skip === 0 || cont === this.max - 1);
+                const save = (cont % this.skip === 0 || cont === this.Nmax - 1);
                 for (let i = 0; i < NPROC; i++) {
                     if (this.stopThread)
                         return;
@@ -449,7 +481,7 @@ export class CalculateEHFrameParallel extends JFrame {
                     const tagN = 197 + cont;
                     const message = await jpvm.pvm_recv(tids[i], tagN);
                     n = message.buffer.upkint();
-                    //5) RECEBE OS ARQUIVOS DE CADA SLAVE (Phoenix: only when saving)
+                    //5) RECEBE OS ARQUIVOS DE CADA SLAVE
                     if (save) {
                         const tagResposta = 900;
                         await PvmUtil.printMessageFromSlave(jpvm, tids[i], (902), false);
@@ -457,21 +489,31 @@ export class CalculateEHFrameParallel extends JFrame {
                         await PvmUtil.printMessageFromSlave(jpvm, tids[i], (904), false);
                         //6) JUNTA OS DADOS EM UM UNICO PONTEIRO
                         const [Xi] = CalculateEHFrameParallel.partition(TX, NPROC, i);
-                        const Xf = Xi + Partial.tx;
-                        FieldAtual.setValuesData(Partial, Xi, Xf, 0, ModelY, 0, ModelZ);
+                        const Ci = Xi / 2;
+                        FieldAtual.setValuesData(Partial, Ci, Ci + Partial.tx, 0, cy, 0, cz);
                         jpvm.pvm_send(new jpvmBuffer(), tids[i], TAG_ACK);
                     }
                 }
                 if (this.barValue() < (n + 1))
                     this.setBar(n + 1);
                 const elapsed = (performance.now() - t0) / 1000;
-                this.StatusLabel.setText("n = " + (n + 1) + " / " + this.max + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(1) + " steps/s)");
+                this.StatusLabel.setText("n = " + (n + 1) + " / " + this.Nmax + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(2) + " steps/s)");
                 //7) GRAVA RESPOSTA EM DISCO DEPOIS DE RECEBER DE TODOS OS SLAVES
                 if (save) {
                     const r = FieldAtual.Save(this.PATH, this.SimulName, n, this);
                     ResultsStore.addSnapshot(this.run, n, r);
                     console.log("** CalculateEHFrameParallel::CalculateEHParallel():: GRAVANDO ARQUIVO " + this.PATH + "/results/EN" + n + ".");
                 }
+            }
+            if (nRecordE2) {
+                // Phoenix: the mean E^2 of the last period, in the SAR -> T input format
+                const E2 = new Field(cx, cy, cz, "E2", 0);
+                for (let i = 0; i < NPROC; i++) {
+                    const Partial = await PvmUtil.receivePartialField(jpvm, tids[i], TAG_E2);
+                    const [Xi] = CalculateEHFrameParallel.partition(TX, NPROC, i);
+                    E2.setValuesData(Partial, Xi / 2, Xi / 2 + Partial.tx, 0, cy, 0, cz);
+                }
+                this.saveE2(E2, nRecordE2);
             }
             jpvm.pvm_exit();
         } catch (jpe) {
@@ -494,7 +536,9 @@ export class CalculateEHFrameParallel extends JFrame {
             console.log("*** Tempo de simulacao = " + (tempoTotal / 1000.0) + "s = " + tempoM + "min e " + tempoS + "s.");
             await ResultsDisk.flush();
             ResultsStore.finish(this.run, { seconds: tempoTotal / 1000 });
-            const texto = "Fim da Simulacao!! Tempo = " + (tempoTotal / 1000.0) + "s.";
+            let texto = "Fim da Simulacao!! Tempo = " + (tempoTotal / 1000.0) + "s.";
+            if (this.E2file) texto += "\n\nE² of the last " + this.run.info.E2steps + " steps: " + this.E2file +
+                "\nPeak SAR = " + this.run.info.peakSAR.toPrecision(3) + " W/kg (" + this.run.info.peakSARmaterial + ")";
             await JOptionPane.showMessageDialog(this, texto, "End of Simulation", JOptionPane.INFORMATION_MESSAGE);
             this.EHCalculated = true;
         }
@@ -502,6 +546,34 @@ export class CalculateEHFrameParallel extends JFrame {
         this.CancelButton.setEnabled(false);
         this.setVisible(false);
         if (!this.errorJPVM && this.onFinished) this.onFinished(this.run);
+    }
+
+    /**
+     * Phoenix: writes results/<SimulName>_E2_<f>Hz (one line per x, like the
+     * T files) and gives the viewer E^2 and SAR = sigma.E^2/(2.density).
+     */
+    saveE2(E2, steps) {
+        const name = this.PATH + "/results/" + this.SimulName + "_E2_" + doubleToString(this.f) + "Hz";
+        const e2 = E2.getData();
+        ResultsDisk.writeMatrix(name, e2, E2.tx, E2.ty * E2.tz);
+        this.E2file = name.replace(/^\//, "");
+        const sar = new Float32Array(e2.length);
+        const sigma = new Float64Array(256), dens = new Float64Array(256), names = [];
+        for (const m of this.Mat) {
+            // (not in the air, nor in the wire of the antenna)
+            if (m.isAir() || m.isConductor() || /^(copper|source)/i.test(m.name()) || !(m.density() > 0)) continue;
+            sigma[m.code()] = m.si(this.FIndex); dens[m.code()] = m.density(); names[m.code()] = m.name();
+        }
+        const codes = this.run.codes;
+        let peak = 0, peakCode = 0;
+        for (let q = 0; q < e2.length; q++) {
+            const c = codes[q];
+            if (!dens[c]) continue;
+            sar[q] = sigma[c] * e2[q] / (2 * dens[c]);
+            if (sar[q] > peak) { peak = sar[q]; peakCode = c; }
+        }
+        this.run.extra = { E2: Float32Array.from(e2), SAR: sar };
+        Object.assign(this.run.info, { E2file: this.E2file, E2steps: steps, peakSAR: peak, peakSARmaterial: names[peakCode] || "-" });
     }
 
     /** Phoenix: registers this calculation in the viewer's ResultsStore. */
@@ -518,9 +590,8 @@ export class CalculateEHFrameParallel extends JFrame {
         return ResultsStore.newRun({
             kind: 'EH', name: this.SimulName, dims: [cx, cy, cz], deltas: [this.dx, this.dy, this.dz], codes,
             materials: this.Mat.map(m => ({ code: m.code(), name: m.name(), color: [m.color().getRed(), m.color().getGreen(), m.color().getBlue()] })),
-            info: { f: this.f, dt: this.dt, N: this.max, skip: this.skip, NPROC: CalculateEHFrameParallel.NPROC, CCA: this.CCAtype + this.CCAorder },
-            // the cube that contains each source (expanded point 2c+1 is the centre of cube c)
-            sources: this.S.map(s => s.getLocation().map((v, a) => Math.max(0, Math.min(Math.floor(v / 2), [cx, cy, cz][a] - 1)))),
+            info: { f: this.f, dt: this.dt, N: this.Nmax, skip: this.skip, NPROC: CalculateEHFrameParallel.NPROC, CCA: this.CCAtype + this.CCAorder },
+            sources: this.S.map(s => s.getLocation().slice()),
         });
     }
 
@@ -530,29 +601,36 @@ export class CalculateEHFrameParallel extends JFrame {
         this.save3df(nome, PATH);
     }
 
+    /** Phoenix: also writes the 2010 attributes (dt, N, field, axis...), so the file can be opened again. */
     save3dm(N3dm, PATH) {
         const M = this.M;
         const SX = (M.x() - 1) / 2;
         const SY = (M.y() - 1) / 2;
         const SZ = (M.z() - 1) / 2;
         const nome3dm = PATH + "/results/Simul" + N3dm + ".3dm";
+        const T = this.thermal || {};
         let o = "";
         o += "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n";
         o += "<!-- Created by Ana Rodrigues on September 28, 2005, 16:44 PM -->\n";
         o += "<MaterialModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(this.dx) + "," + doubleToString(this.dy) + "," + doubleToString(this.dz) + "\"";
-        o += " frequency=\"" + doubleToString(this.f) + "\">\n";
+        o += " frequency=\"" + this.Freq.map(doubleToString).join(",") + "\"";
+        o += " dt=\"" + doubleToString(this.dt) + "\" N=\"" + (this.Nmax - 1) + "\" reduzN=\"" + this.skip + "\"";
+        for (const k of ["dtt", "NT", "reduzNT", "Tenv", "Tblood", "Ttissues", "hc"]) if (T[k] !== undefined) o += " " + k + "=\"" + doubleToString(T[k]) + "\"";
+        o += ">\n";
         o += "<sources>\n";
         for (let s = 0; s < this.S.length; s++) {
             const S = this.S[s];
-            o += "<source type=\"" + S.getType() + "\" location=\"" + S.getLocation()[0] + "," + S.getLocation()[1] + "," + S.getLocation()[2] + "\" maxValue=\"" + doubleToString(S.getMaxValue()) + "\" unit=\"" + S.getUnit() + "\"  hard=\"" + S.isHard() + "\"></source>\n";
+            o += "<source type=\"" + S.getType() + "\" field=\"" + S.getField() + "\" axis=\"" + S.getAxis() + "\"" + (S.getPlane ? " plane=\"" + S.getPlane() + "\"" : "") +
+                " location=\"" + S.getLocation()[0] + "," + S.getLocation()[1] + "," + S.getLocation()[2] + "\" maxValue=\"" + doubleToString(S.getMaxValue()) + "\" unit=\"" + S.getUnit() + "\"  hard=\"" + S.isHard() + "\"></source>\n";
         }
         o += "</sources>\n";
         o += "<materials>\n";
         for (let m = 0; m < this.NMat; m++) {
             const Mm = this.Mat[m];
+            const perFreq = (fn) => Array.from({ length: Mm.nfreq() }, (_, ff) => doubleToString(fn.call(Mm, ff))).join(",");
             o += "<material code=\"" + Mm.code() + "\" color=\"" + Mm.color().getRed() + "," + Mm.color().getGreen() + "," + Mm.color().getBlue() + "\"";
             o += " name=\"" + Mm.name(0) + "\" transparency=\"" + doubleToString(Mm.transp()) + "\" visible=\"" + Mm.visible() + "\"";
-            o += " muR=\"" + doubleToString(Mm.muR(0)) + "\" epR=\"" + doubleToString(Mm.epR(0)) + "\" si=\"" + doubleToString(Mm.si(0)) + "\" siC=\"" + doubleToString(Mm.siC(0)) + "\" density=\"" + doubleToString(Mm.density()) + "\"";
+            o += " muR=\"" + perFreq(Mm.muR) + "\" epR=\"" + perFreq(Mm.epR) + "\" si=\"" + perFreq(Mm.si) + "\" siC=\"" + perFreq(Mm.siC) + "\" density=\"" + doubleToString(Mm.density()) + "\"";
             o += " C=\"" + doubleToString(Mm.C()) + "\" k=\"" + doubleToString(Mm.K()) + "\" bf=\"" + doubleToString(Mm.Bf()) + "\" hm=\"" + doubleToString(Mm.Hm()) + "\"  e=\"" + doubleToString(Mm.Emissivity()) + "\" kevap=\"" + doubleToString(Mm.Kevap()) + "\"  >";
             o += "</material>\n";
         }
@@ -563,25 +641,18 @@ export class CalculateEHFrameParallel extends JFrame {
         ResultsDisk.writeText(nome3dm, o);
     }
 
+    /** (2010 also wrote SimulXH.3df, but no HN file: EscreveH() was called with writeH = false) */
     save3df(N3df, PATH) {
         const M = this.M;
         const SX = (M.x() - 1) / 2;
         const SY = (M.y() - 1) / 2;
         const SZ = (M.z() - 1) / 2;
-        let name3df = PATH + "/results/Simul" + N3df + "E.3df";
+        const name3df = PATH + "/results/Simul" + N3df + "E.3df";
         let o = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n";
         o += "<FieldModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(M.dx()) + "," + doubleToString(M.dy()) + "," + doubleToString(M.dz());
-        o += "\" timesteps=\"" + (this.max - 1) + "\" units=\"(E [V/m])\">\n";
+        o += "\" timesteps=\"" + (this.Nmax - 1) + "\" units=\"(E [V/m])\">\n";
         o += "<data prefix=\"EN\" initialSufixCount=\"0\" sufixIncrement=\"" + this.skip + "\"></data>\n";
         const name3dm = N3df + ".3dm";
-        o += "<MaterialModel location =\"" + "Simul" + name3dm + "\"></MaterialModel>\n";
-        o += "</FieldModel>\n";
-        ResultsDisk.writeText(name3df, o);
-
-        name3df = PATH + "/results/Simul" + N3df + "H.3df";
-        o = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n";
-        o += "<FieldModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(M.dx()) + "," + doubleToString(M.dy()) + "," + doubleToString(M.dz()) + "\" timesteps=\"" + this.max + "\" units=\"(H [A/m])\">\n";
-        o += "<data prefix=\"HN\" initialSufixCount=\"0\" sufixIncrement=\"" + this.skip + "\"></data>\n";
         o += "<MaterialModel location =\"" + "Simul" + name3dm + "\"></MaterialModel>\n";
         o += "</FieldModel>\n";
         ResultsDisk.writeText(name3df, o);

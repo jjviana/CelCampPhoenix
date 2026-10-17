@@ -3,8 +3,8 @@
  *
  * In 2007 the results were looked at in MATLAB (PlotSliceFields.m,
  * PlotFieldsMovie.m, CompareCubeSteel_2007.m ...).  This window does the
- * same in the browser: a slice of the model, of |E|, |H| or of T along X,
- * Y or Z, a time slider over the saved steps, and the TMinAvMax curves.
+ * same in the browser: a slice of the model, of |E|, E^2, SAR or T along
+ * X, Y or Z, a time slider over the saved steps, and the TMinAvMax curves.
  */
 import { JFrame } from '../swing/JFrame.js';
 import { el } from '../swing/swing.js';
@@ -27,7 +27,12 @@ const QUANT = {
     E: { label: "|E| (V/m)", unit: "V/m" },
     H: { label: "|H| (A/m)", unit: "A/m" },
     T: { label: "T (°C)", unit: "°C" },
+    TRise: { label: "T rise since n = 0 (°C)", unit: "°C" },
+    E2: { label: "E² peak, last period (V²/m²)", unit: "V²/m²" },
+    SAR: { label: "SAR = σE²/2ρ (W/kg)", unit: "W/kg" },
 };
+const LOG_DEFAULT = new Set(['E', 'H', 'E2', 'SAR']);
+const SKIP_AIR = new Set(['T', 'TRise']);
 
 function fmt(v) {
     if (!isFinite(v)) return String(v);
@@ -150,7 +155,7 @@ export class FieldViewer extends JFrame {
 
     showModel(m) {
         if (!m) return;
-        const sources = (m.sources || []).map(L => L.map((v, a) => Math.max(0, Math.min(Math.floor(v / 2), m.dims[a] - 1))));
+        const sources = (m.sources || []).map(L => L.slice());
         this.modelRun = { kind: 'model', name: m.name, dims: m.dims, deltas: m.deltas, codes: m.codes, materials: m.materials, snapshots: [], series: [], sources, finished: true };
         this.setRun(this.modelRun);
     }
@@ -162,14 +167,15 @@ export class FieldViewer extends JFrame {
         this.current = run;
         this.fillSources();
         const qs = ['materials'];
-        if (run.kind === 'EH') qs.push('E', 'H');
-        if (run.kind === 'T') qs.push('T');
+        if (run.kind === 'EH') qs.push('E');
+        if (run.kind === 'EH' && run.extra) qs.push('E2', 'SAR');
+        if (run.kind === 'T') qs.push('T', 'TRise');
         if (run.fromFile) qs.push(...run.quantities.filter(q => !qs.includes(q)));
         this.quantSel.innerHTML = '';
         for (const q of qs) { const o = el('option', null, QUANT[q].label); o.value = q; this.quantSel.appendChild(o); }
         this.quantity = qs.length > 1 ? qs[1] : 'materials';
         this.quantSel.value = this.quantity;
-        this.logInput.checked = this.log = (this.quantity === 'E' || this.quantity === 'H');
+        this.logInput.checked = this.log = LOG_DEFAULT.has(this.quantity);
         for (let a = 0; a < 3; a++) this.slice[a] = Math.floor(run.dims[a] / 2);
         this.snapIndex = Math.max(0, run.snapshots.length - 1);
         this.syncSlider();
@@ -205,7 +211,13 @@ export class FieldViewer extends JFrame {
 
     async snapshotValues() {
         const r = this.current;
-        if (!r || this.quantity === 'materials' || !r.snapshots.length) return null;
+        if (!r || this.quantity === 'materials') return null;
+        if (r.extra && r.extra[this.quantity]) {
+            // E^2 and SAR: one field for the whole run (the average over the last period)
+            if (!r.extraSnap) r.extraSnap = { n: r.snapshots.length ? r.snapshots[r.snapshots.length - 1].n : 0, fields: r.extra, average: (r.info && r.info.E2steps) || 0 };
+            return { s: r.extraSnap, v: r.extra[this.quantity] };
+        }
+        if (!r.snapshots.length) return null;
         const s = r.snapshots[Math.min(this.snapIndex, r.snapshots.length - 1)];
         if (s.fields[this.quantity]) return { s, v: s.fields[this.quantity] };
         if (s.paths && s.paths[this.quantity]) {
@@ -268,7 +280,7 @@ export class FieldViewer extends JFrame {
             if (!sv.s.range) sv.s.range = {};
             if (!sv.s.range[this.quantity]) {
                 let a = Infinity, b = -Infinity, pmin = Infinity;
-                const skipAir = this.quantity === 'T';
+                const skipAir = SKIP_AIR.has(this.quantity);
                 for (let p = 0; p < v.length; p++) {
                     if (skipAir && airCodes.has(r.codes[p])) continue;
                     const x = v[p];
@@ -292,7 +304,7 @@ export class FieldViewer extends JFrame {
                 let rgb;
                 if (!sv) {
                     rgb = colors.get(code) || [255, 0, 255];
-                } else if (this.quantity === 'T' && airCodes.has(code)) {
+                } else if (SKIP_AIR.has(this.quantity) && airCodes.has(code)) {
                     const c = colors.get(code) || [0, 0, 0];
                     rgb = [c[0] * 0.3 + 60, c[1] * 0.3 + 60, c[2] * 0.3 + 60];
                 } else {
@@ -356,7 +368,8 @@ export class FieldViewer extends JFrame {
             const a = useLog ? Math.pow(10, llo) : lo, b = hi;
             this.colorbar.append(el('span', 'jnote', fmt(a)), bar, el('span', 'jnote', fmt(b) + " " + QUANT[this.quantity].unit));
             const s = sv.s;
-            this.timeLabel.textContent = "n = " + s.n + (r.info && r.info.dt ? "  (t = " + fmt(s.n * r.info.dt) + " s)" : r.info && r.info.dtT ? "  (t = " + fmt(s.n * r.info.dtT / 60) + " min)" : "");
+            if (s.average) this.timeLabel.textContent = "average of the last " + s.average + " steps (n ≤ " + s.n + ")";
+            else this.timeLabel.textContent = "n = " + s.n + (r.info && r.info.dt ? "  (t = " + fmt(s.n * r.info.dt) + " s)" : r.info && r.info.dtT ? "  (t = " + fmt(s.n * r.info.dtT / 60) + " min)" : "");
         } else {
             const present = new Set();
             for (let v = 0; v < H; v++) for (let u = 0; u < W; u++) present.add(r.codes[g.index(u, v)]);
@@ -464,6 +477,7 @@ export class FieldViewer extends JFrame {
         const prefix = data.getAttributeValue('prefix');
         const units = fm.getAttributeValue('units') || '';
         const q = /T \[/.test(units) ? 'T' : /H \[/.test(units) ? 'H' : 'E';
+        const skip = +data.getAttributeValue('sufixIncrement') || 1;
         const mmPath = dir + fm.getChild('MaterialModel').getAttributeValue('location');
         const mm = new SAXBuilder().build(await ResultsDisk.readText(mmPath)).getRootElement();
         const materials = mm.getChild('materials').getChildren('material').map(m => ({
@@ -480,12 +494,10 @@ export class FieldViewer extends JFrame {
             snapshots: steps.map(s => ({ n: s.n, fields: {}, paths: { [q]: s.p } })),
         };
         if (q === 'T') {
-            // the TMinAvMax file of the same run, if present
-            const tag = prefix.replace(/^T_/, '').replace(/_N$/, '');
+            // the TMinAvMax file (of the last T run: 2010 gave it no run name)
             try {
-                const lines = (await ResultsDisk.readText(dir + 'TMinAvMax_' + tag + '.txt')).trim().split('\n');
-                const skip = +lines[1];
-                run.series = lines.slice(2).map((l, i) => { const [mn, av, mx] = l.trim().split(/\s+/).map(Number); return { n: i * skip, min: mn, avg: av, max: mx }; });
+                const lines = (await ResultsDisk.readText(dir + 'TMinAvMax.txt')).trim().split('\n');
+                run.series = lines.slice(1).map((l, i) => { const [mn, av, mx] = l.trim().split(/\s+/).map(Number); return { n: i * skip, min: mn, avg: av, max: mx }; });
                 run.info.dtT = 1;
             } catch (e) { /* no curve */ }
         }

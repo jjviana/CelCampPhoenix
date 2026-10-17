@@ -1,7 +1,7 @@
 /*
  * FDTD_T_slave.js
  *
- * Created on 6 de Marco de 2006, 13:02   (FDTD_T_slave.java, 29/3/2007)
+ * Created on 6 de Marco de 2006, 13:02   (FDTD_T_slave.java, 29/3/2007 - 22/10/2008)
  * Ported to JavaScript in 2026 (CelCamp Phoenix).
  *
  * @author Ana de Oliveira Rodrigues
@@ -9,6 +9,11 @@
  *
  * One slave of the temperature calculation (bioheat equation, Gandhi 2001)
  * on the original - not expanded - model.
+ *
+ * October 2008: the heat of the electromagnetic field comes from E^2 read
+ * from a file (hem = sigma.E^2/2), the metabolism is density*hm [W/m3]
+ * (it was hm [W/kg]), and radiation, convection and evaporation are always
+ * on.
  *
  * Phoenix notes:
  *  - "implementar paralelizacao da temperatura" was still on the 2007 to-do
@@ -74,12 +79,8 @@ export class FDTD_T_slave {
             const NPROC = message.buffer.upkint();
             const nMax = message.buffer.upkint();
             const skip = message.buffer.upkint();
-            const RadiationEnabled = PvmUtil.unpackBoolean(message.buffer);
-            const ConvectionEnabled = PvmUtil.unpackBoolean(message.buffer);
-            const EvaporationEnabled = PvmUtil.unpackBoolean(message.buffer);
-            const TinitLoaded = PvmUtil.unpackBoolean(message.buffer);
             //confirma que recebeu:
-            texto = "Recebeu SlaveID = " + slaveID + ", NPROC = " + NPROC + ", Nmax = " + nMax + " e skip = " + skip + ".";
+            texto = "Recebeu SlaveID = " + slaveID + ", NPROC = " + NPROC + ", Nmax = " + nMax + ", reduzN =" + skip + ".";
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
             //recebe os vizinhos
@@ -104,9 +105,14 @@ export class FDTD_T_slave {
             const Tenv = message.buffer.upkdouble();
             const Tblood = message.buffer.upkdouble();
             const Ttissues = message.buffer.upkdouble();
+            const TRead = message.buffer.upkdouble();
+            let TinitWasRead = false;
+            if (TRead !== 0) {
+                TinitWasRead = true;
+            }
             const Xoffset = message.buffer.upkint(); // Phoenix (informative)
             //confirma que recebeu o tamanho:
-            texto = "Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ") em X = " + Xoffset;
+            texto = "SLAVE::Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ") em X = " + Xoffset;
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
             //aloca o modelo local:
@@ -114,25 +120,33 @@ export class FDTD_T_slave {
             //recebe o modelo:
             message = await jpvm.pvm_recv(parent, 33);
             //confirma que recebeu o modelo:
-            texto = "Recebeu o Modelo.";
+            texto = "SLAVE::Recebeu o Modelo.";
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
             //coloca os valores dentro do modelo local:
             PvmUtil.unpackPartialModel(message.buffer, ModeloLocal);
-            //confirma que recebeu o Tinit:
-            const tagTexto = 34;
+            //INCLUIDO EM 06/10/2008 - Leitura de SAR externa
+            //recebe a SAR:
+            const SARLocal = new Field(ModelX, ModelY, ModelZ);
+            message = await jpvm.pvm_recv(parent, 3301);
+            //confirma que recebeu o modelo:
+            texto = "SLAVE::Recebeu a SAR.";
+            tagAtual++;
+            PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
+            //coloca os valores dentro do modelo local:
+            PvmUtil.unpackPartialSAR(message.buffer, SARLocal);
+
             let Tinit = null;
-            if (TinitLoaded) {
-                //recebe os valores iniciais de T:
-                const tagTinit = 4444;
-                message = await jpvm.pvm_recv(parent, tagTinit);
+            if (TinitWasRead) { //recebe a Tinit:
                 Tinit = new Field(ModelX, ModelY, ModelZ);
-                PvmUtil.unpackPartialTinit(message.buffer, Tinit);
-                texto = "Recebeu os Valores Iniciais de T.";
-            } else {
-                texto = "Nao recebeu os Valores Iniciais de T.";
+                message = await jpvm.pvm_recv(parent, 3302);
+                //confirma que recebeu o modelo:
+                texto = "SLAVE::Recebeu a Tinit.";
+                tagAtual++;
+                PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
+                //coloca os valores dentro do modelo local:
+                PvmUtil.unpackPartialSAR(message.buffer, Tinit);
             }
-            PvmUtil.sendMessageToParent(jpvm, parent, texto, tagTexto);
 
             // 3) RECEBE OS MATERIAIS
             //recebe materiais:
@@ -140,7 +154,7 @@ export class FDTD_T_slave {
             const FreqIndex = 1;
             const Mat = await PvmUtil.receiveMaterials(jpvm, FreqIndex, tagAtual);
             //confirma que recebeu materiais:
-            const mes0 = "Recebeu " + Mat.length + " materiais com o primeiro sendo " + Mat[0].name();
+            const mes0 = "SLAVE::Recebeu " + Mat.length + " materiais com o primeiro sendo " + Mat[0].name();
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, mes0, tagAtual);
             //descobre o codigo do ar se for diferente de 1
@@ -155,6 +169,15 @@ export class FDTD_T_slave {
             const initValue = Tenv;
             for (let tam = 0; tam < NumFields; tam++) {
                 T[tam] = new Field(ModelX, ModelY, ModelZ, "T", initValue);
+            }
+            //Armazena a diferenca entre o valor inicial e o T
+            //(2008; never sent to the master, which shows T - T(n=0) instead)
+            let TRise = null;
+            if (Tinit != null) {
+                TRise = new Field(ModelX, ModelY, ModelZ, "TRise", 0);
+            } else {
+                Tinit = new Field(ModelX, ModelY, ModelZ, "Tinit", initValue);
+                TRise = new Field(ModelX, ModelY, ModelZ, "TRise", 0);
             }
 
             // Phoenix: borders.  Planes are exchanged with PvmUtil.sendBorder()
@@ -220,7 +243,9 @@ export class FDTD_T_slave {
 
                 const T0 = T[0].getData();
                 const T1 = T[1].getData();
-                const Ti = TinitLoaded ? Tinit.getData() : null;
+                const Ti = Tinit.getData();
+                const SARd = SARLocal.getData();
+                const TR = TRise.getData();
 
                 /**
                  * 2) Faz o T:
@@ -239,11 +264,11 @@ export class FDTD_T_slave {
                                 continue;
                             }
                             if (n === 0) {
-                                if (TinitLoaded) {
-                                    T0[p] = Ti[p];   // 2007: T[0].setData(Tinit.getData())
+                                if (!TinitWasRead) {
+                                    T0[p] = Ttissues;
                                     continue;
                                 } else {
-                                    T0[p] = Ttissues;
+                                    T0[p] = Ti[p];
                                     continue;
                                 }
                             }
@@ -291,7 +316,10 @@ export class FDTD_T_slave {
                             const PwPoint = 1.92 * Tpoint - 2.53; //vapour pressure of water at Skin [mmHg]
 
                             //calor gerado pelo metabolismo interno:
-                            const metabolism = Hm;
+                            // double metabolism = Hm;
+                            //Essa modificacao foi feita em 2008, pois a unidade
+                            //   de metabolism deve ser [W/m3] e era [W/kg]
+                            const metabolism = C.density[code] * Hm;
                             //calor trocado com o sangue:
                             const bloodCooling = Bf * Cb * (Tblood - Tpoint);
                             //variacao do calor por conducao para outros tecidos:
@@ -305,62 +333,63 @@ export class FDTD_T_slave {
                             Tant[4] = ZminusAir ? Tpoint : T1[p - 1];
                             Tant[5] = ZplusAir ? Tpoint : T1[p + 1];
                             const conduction = FDTD_T_slave.calculateGrads(K, Tpoint, Tant, Air, dx, dy, dz);
-                            //calor gerado pela SAR:
-                            const sar = 0;
+                            //calor gerado pela SAR: (incluido em out/2008)
+                            //======================
+                            // O arquivo fornece o E^2
+                            // Para calcular a SAR = (sigma.E^2)/(2*density)
+                            // hem = SAR*density = (sigma*E^2)/(2*density) * density = (sigma*E^2)/2
+                            const hem = C.sigma[code] * SARd[p] / 2;
                             //OK - calor perdido por radiacao, conveccao e evaporacao:
                             let radiation = 0;
                             let convection = 0;
                             let evaporation = 0;
                             let Aeff = 0;
-                            if (E !== 0 || hc !== 0 || kEvap !== 0) {
-                                const Erad = E;
-                                let Econv = E;
-                                if (E !== 0 && E !== 1.0)
-                                    Econv = 1.0;
-                                const anyAir = XminusAir || XplusAir || YminusAir || YplusAir || ZminusAir || ZplusAir;
-                                const rad = (anyAir && RadiationEnabled) ? Erad * sbc * (Math.pow((Tpoint + 273.15), 4) - TenvK4) : 0;
-                                if (XminusAir) {
-                                    Aeff = (dy * dz);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
-                                if (XplusAir) {
-                                    Aeff = (dy * dz);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
-                                if (YminusAir) {
-                                    Aeff = (dx * dz);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
-                                if (YplusAir) {
-                                    Aeff = (dx * dz);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
-                                if (ZminusAir) {
-                                    Aeff = (dx * dy);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
-                                if (ZplusAir) {
-                                    Aeff = (dx * dy);
-                                    if (RadiationEnabled) radiation += Aeff * rad;
-                                    if (ConvectionEnabled) convection += Aeff * Econv * hc * (Tpoint - Tenv);
-                                    if (EvaporationEnabled) evaporation += Aeff * kEvap * (PwPoint - PwEnv);
-                                }
+                            const anyAir = XminusAir || XplusAir || YminusAir || YplusAir || ZminusAir || ZplusAir;
+                            const rad = anyAir ? E * sbc * (Math.pow((Tpoint + 273.15), 4) - TenvK4) : 0;
+                            if (XminusAir) {
+                                Aeff = (dy * dz);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
+                            }
+                            if (XplusAir) {
+                                Aeff = (dy * dz);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
+                            }
+                            if (YminusAir) {
+                                Aeff = (dx * dz);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
+                            }
+                            if (YplusAir) {
+                                Aeff = (dx * dz);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
+                            }
+                            if (ZminusAir) {
+                                Aeff = (dx * dy);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
+                            }
+                            if (ZplusAir) {
+                                Aeff = (dx * dy);
+                                radiation += Aeff * rad;
+                                convection += Aeff * hc * (Tpoint - Tenv);
+                                evaporation += Aeff * kEvap * (PwPoint - PwEnv);
                             }
                             //FDTD DA TEMPERATURA:
                             const Tatual = Tpoint +
-                                const1 * (cellVolume * (conduction + metabolism + sar + bloodCooling) +
+                                const1 * (cellVolume * (conduction + metabolism + hem + bloodCooling) +
                                     (-radiation - convection - evaporation));
+                            let Trise = 0;
+                            Trise = Tatual - Ti[p];
                             T0[p] = Tatual;
+                            TR[p] = Trise;
                         }
                     }
                 }
@@ -375,11 +404,12 @@ export class FDTD_T_slave {
                 if (n % skip === 0) {
                     if (unacked >= MAX_UNACKED) { await jpvm.pvm_recv(parent, TAG_ACK); unacked--; }
                     const tagResposta = 900;
-                    let mes = "Mandando parcial para master com tag =" + tagResposta + ".";
+                    //manda o Tatual
+                    let mes = "Mandando T parcial para master com tag =" + tagResposta + ".";
                     PvmUtil.sendMessageToParent(jpvm, parent, mes, (902));
                     // envia:
                     PvmUtil.sendPartialField(jpvm, parent, T[0], tagResposta);
-                    mes = "Mandou parcial para master com tag =" + tagResposta + ".";
+                    mes = "Mandou T parcial para master com tag =" + tagResposta + ".";
                     PvmUtil.sendMessageToParent(jpvm, parent, mes, (904));
                     unacked++;
                     print.println("N = " + n + " enviado para o master.");
@@ -402,6 +432,7 @@ export class FDTD_T_slave {
         const C = {
             K: new Float64Array(N), Bf: new Float64Array(N), Hm: new Float64Array(N),
             E: new Float64Array(N), kEvap: new Float64Array(N), const1: new Float64Array(N),
+            density: new Float64Array(N), sigma: new Float64Array(N),
         };
         for (let mm = 0; mm < Mat.length; mm++) {
             const mat = Mat[mm];
@@ -413,6 +444,9 @@ export class FDTD_T_slave {
             const density = mat.density();
             C.K[code] = K; C.Bf[code] = Bf; C.Hm[code] = mat.Hm();
             C.E[code] = mat.Emissivity(); C.kEvap[code] = mat.Kevap();
+            C.density[code] = density;
+            // 2008: double sigma = mat.si(1);  (Phoenix: index 0 when the model has one frequency)
+            C.sigma[code] = mat.si(Math.min(1, mat.nfreq() - 1));
 
             let dtThour = dtT / (60 * 60); //converte dt para horas
             const mass = cellVolume * density;

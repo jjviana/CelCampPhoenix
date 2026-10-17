@@ -1,7 +1,7 @@
 /*
  * TelaInicial.js
  *
- * Created on August 26, 2004, 2:11 PM   (TelaInicial.java)
+ * Created on August 26, 2004, 2:11 PM   (TelaInicial.java, version of 27/5/2010)
  * Ported to JavaScript in 2026 (CelCamp Phoenix).
  *
  * @author  Ana de Oliveira Rodrigues
@@ -12,7 +12,10 @@
  * (2026: the daemon now lives inside the page - nothing to start by hand.)
  *
  * The main window ("Copacabana v1.0"): the menus, and the reading of the
- * model files (*.3dm + *.dat).
+ * model files (*.3dm + *.dat).  Since 2008 the .3dm file also carries the
+ * parameters of the calculations (dt, N, reduzN for EH; dtt, NT, reduzNT,
+ * Tenv, Tblood, Ttissues, hc for T) and the sources say which field (E or
+ * H) and axis they drive, in the coordinates of the original cubes.
  */
 import { JFrame, JMenuBar, JMenu, JMenuItem, JOptionPane } from './swing/JFrame.js';
 import { hasDOM, el } from './swing/swing.js';
@@ -20,7 +23,8 @@ import { SAXBuilder } from './phoenix/MiniJDOM.js';
 import { Material, Color } from './Material.js';
 import { Model } from './Model.js';
 import { PuntualSource } from './PuntualSource.js';
-import { LinearSource } from './LinearSource.js';
+import { PlaneWaveSource } from './PlaneWaveSource.js';
+import { Field } from './Field.js';
 import { SimulData } from './SimulData.js';
 import { CalculateEHFrameParallel } from './CalculateEHFrameParallel.js';
 import { CalculateTFrameParallel } from './CalculateTFrameParallel.js';
@@ -64,7 +68,15 @@ export class TelaInicial extends JFrame {
         this.mat = new Array(this.MaxNumMaterials);
         this.NumMaterials = 0;
         this.N = 0;
-        this.dt = 0;
+        this.reduzN = 0;
+        this.dtt = 0;
+        this.NT = 0;
+        this.reduzNT = 0;
+        this.dt = 0;  //Delta T for EH calculation
+        this.Temps = null; //Tenv, Tblood, Ttissues
+        this.hc = 0;
+        this.SAR = null;
+        this.SARName = null; // Phoenix
         this.ModelWasRead = false;
         this.EHwasCalculated = false;
         this.TwasCalculated = false;
@@ -124,6 +136,10 @@ export class TelaInicial extends JFrame {
         this.MenuRedux.setToolTipText("Model.redux(): keeps every second cube, so the EH calculation of the head fits in the browser.");
         this.MenuRedux.setEnabled(false);
         this.ToolsMenu.add(this.MenuRedux);
+        this.MenuDipole = new JMenuItem("Place Dipole Antenna…", "P", () => this.MenuDipoleActionPerformed());
+        this.MenuDipole.setToolTipText("Writes a copper half-wave dipole (with its source in the gap) into the model, e.g. next to the head.");
+        this.MenuDipole.setEnabled(false);
+        this.ToolsMenu.add(this.MenuDipole);
         this.jMenuBar1.add(this.ToolsMenu);
 
         this.JPVM = new JMenu("JPVM", "J");
@@ -161,7 +177,9 @@ export class TelaInicial extends JFrame {
 
     async CalculateTMenuActionPerformed() {
         if (this.ModelWasRead) {
-            const tf = new CalculateTFrameParallel(this.GridSizeX, this.GridSizeY, this.GridSizeZ, this.SimulName, this.S, this.model, this.mat, this.NumMaterials, TelaInicial.CurrentDir);
+            // Phoenix: without the E^2 of a SAR file (2010 passed whatever SAR had been read last)
+            const SAR = new Field(this.GridSizeX, this.GridSizeY, this.GridSizeZ, "SAR", 0);
+            const tf = new CalculateTFrameParallel(this.GridSizeX, this.GridSizeY, this.GridSizeZ, this.SimulName, this.S, SAR, this.model, this.mat, this.NumMaterials, TelaInicial.CurrentDir, this.dtt, this.NT, this.reduzNT, this.Temps, this.hc);
             tf.setDefaultCloseOperation('dispose');
             tf.onFinished = (run) => this.openViewer(run);
             tf.setLocationByPlatform(true);
@@ -203,18 +221,54 @@ export class TelaInicial extends JFrame {
         }
     }
 
-    async CalculateSAR_TMenuActionPerformed() {
+    async CalculateSAR_TMenuActionPerformed(file) {
         if (this.ModelWasRead) {
-            if (this.EHwasCalculated) {
-                console.log("*** Calculando o aumento de Temperatura (T)...");
-            } else {
-                await JOptionPane.showMessageDialog(this, "Nao e' possivel calcular T \n porque EH ainda nao foi calculado!", "ERRO NO CALCULO", JOptionPane.ERROR_MESSAGE);
-                console.log("*** Nao e' possivel calcular T porque EH ainda nao foi calculado...");
-            }
+            // 2010: only when EH had not been calculated in this session (the
+            // EH calculation had expanded the model itself); Phoenix: always.
+            if (!(await this.OpenSAR(file))) return null;
+            console.log("*** Calculando o aumento de Temperatura (T)...");
+            const tf = new CalculateTFrameParallel(this.GridSizeX, this.GridSizeY, this.GridSizeZ, this.SimulName, this.S, this.SAR, this.model, this.mat, this.NumMaterials, TelaInicial.CurrentDir, this.dtt, this.NT, this.reduzNT, this.Temps, this.hc);
+            tf.setSARName(this.SARName);
+            tf.setDefaultCloseOperation('dispose');
+            tf.onFinished = (run) => this.openViewer(run);
+            tf.setLocationByPlatform(true);
+            tf.setVisible(true);
+            return tf;
         } else {
             await JOptionPane.showMessageDialog(this, "Nao e' possivel calcular porque\n o modelo ainda nao foi lido!\n (Escolha o Modelo em ESCOLHER)", "ERRO NO CALCULO", JOptionPane.ERROR_MESSAGE);
             console.log("*** Nao e' possivel calcular porque o modelo ainda nao foi lido...");
         }
+    }
+
+    /** Asks for the E^2 file (Phoenix: results/<name>_E2_<f>Hz of an EH run, or a local file). */
+    async OpenSAR(file) {
+        const IF = file || await InputFileChooser.chooseText("Choose the E² (SAR) file — one value per cube", /_E2_/, 'sar');
+        if (!IF) return false; //Escolheu Cancel
+        try {
+            this.SAR = new Field(this.GridSizeX, this.GridSizeY, this.GridSizeZ, "SAR", 0);
+            this.ReadInputSARFile(IF.text, IF.name);
+            this.SARName = IF.name;
+            return true;
+        } catch (e) {
+            console.log(e.toString(), e);
+            await JOptionPane.showMessageDialog(this, "Erro lendo o arquivo de SAR:\n" + (e.message || e), "ERRO", JOptionPane.ERROR_MESSAGE);
+            return false;
+        }
+    }
+
+    /** GridSizeX*GridSizeY*GridSizeZ numbers, x outermost and z fastest. */
+    ReadInputSARFile(text, filename) {
+        console.log("*** TelaInicial::ReadInputSARFile():: Arquivo " + filename);
+        const d = this.SAR.getData();
+        const re = /\S+/g;
+        let count = 0, m;
+        while (count < d.length && (m = re.exec(text)) !== null) {
+            const v = Number(m[0]);
+            if (Number.isNaN(v)) throw new Error("NumberFormatException: " + m[0]);
+            d[count++] = v;
+        }
+        if (count < d.length)
+            throw new Error("SARLoader.PrematureEOF (" + count + " of " + d.length + " values)");
     }
 
     async CalculateEHMenuActionPerformed() {
@@ -226,8 +280,8 @@ export class TelaInicial extends JFrame {
             const expanded = new Model();
             expanded.copy(this.model);
             const points = (2 * expanded.x() + 1) * (2 * expanded.y() + 1) * (2 * expanded.z() + 1);
-            const gb = points * 33 / (1024 * 1024 * 1024);
-            if (gb > 1.5) {
+            const gb = points * 13 / (1024 * 1024 * 1024);
+            if (gb > 2.5) {
                 const answer = await JOptionPane.showConfirmDialog(this,
                     "The expanded model has " + (points / 1e6).toFixed(0) + " million points and needs about " + gb.toFixed(1) +
                     " GB of memory, more than a browser tab usually gets.\n\nUse Tools → Redux Model first.\n\nOpen the EH window anyway?",
@@ -242,7 +296,8 @@ export class TelaInicial extends JFrame {
             /** 07/Marco/2006 - A linha a seguir foi substituida pela sua versao paralelizada:
              **  CalculateEHFrame pf = new CalculateEHFrame(GridSizeX, GridSizeY, GridSizeZ, SimulName, S, model, mat, NumMaterials, CurrentDir);
              ***/
-            const pf = new CalculateEHFrameParallel(GX, GY, GZ, this.SimulName, this.S, expanded, this.mat, this.NumMaterials, TelaInicial.CurrentDir);
+            const pf = new CalculateEHFrameParallel(GX, GY, GZ, this.SimulName, this.S, expanded, this.mat, this.NumMaterials, TelaInicial.CurrentDir, this.dt, this.N, this.reduzN);
+            pf.thermal = { dtt: this.dtt, NT: this.NT, reduzNT: this.reduzNT, Tenv: this.Temps[0], Tblood: this.Temps[1], Ttissues: this.Temps[2], hc: this.hc };
             pf.setDefaultCloseOperation('dispose');
             pf.onFinished = (run) => { this.EHwasCalculated = true; this.openViewer(run); };
             pf.setLocationByPlatform(true);
@@ -272,6 +327,17 @@ export class TelaInicial extends JFrame {
         return JOptionPane.showMessageDialog(null, about, "About", JOptionPane.PLAIN_MESSAGE, ICON_SMALL);
     }
 
+    /** Phoenix: Tools -> Place Dipole Antenna */
+    async MenuDipoleActionPerformed() {
+        if (!this.ModelWasRead) return null;
+        const { DipoleFrame } = await import('./phoenix/DipoleFrame.js');
+        const f = new DipoleFrame(this);
+        f.setDefaultCloseOperation('dispose');
+        f.setLocationByPlatform(true);
+        f.setVisible(true);
+        return f;
+    }
+
     /** Phoenix: Tools -> Redux Model */
     async MenuReduxActionPerformed() {
         if (!this.ModelWasRead) return;
@@ -285,13 +351,16 @@ export class TelaInicial extends JFrame {
         this.dx = this.model.dx(); this.dy = this.model.dy(); this.dz = this.model.dz();
         this.SimulName = this.SimulName + "_redux";
         this.model.Name = this.SimulName;
+        // the new cube c holds the old cube 2c+1; the cubes are twice as big, so is dt
+        for (const src of this.S) src.setLocation(src.getLocation().map((c, a) => Math.max(0, Math.min(Math.floor((c - 1) / 2), [this.GridSizeX, this.GridSizeY, this.GridSizeZ][a] - 1))));
+        this.dt *= 2;
         this.setStatus(this.SimulName + ": " + this.GridSizeX + " × " + this.GridSizeY + " × " + this.GridSizeZ + " cubes");
         const SD = new SimulData(this.model.name(), this.model.x(), this.model.y(), this.model.z(), this.model.dx(), this.model.dy(), this.model.dz(), this.mat, this.NumMaterials);
         SD.setDefaultCloseOperation('dispose');
         SD.setLocationByPlatform(true);
         SD.setVisible(true);
         this.publishModel();
-        await JOptionPane.showMessageDialog(this, "Model reduced from " + before + " to " + this.GridSizeX + " x " + this.GridSizeY + " x " + this.GridSizeZ + " cubes\n(deltas doubled).\n\nThe source locations were not changed.", "Redux", JOptionPane.INFORMATION_MESSAGE);
+        await JOptionPane.showMessageDialog(this, "Model reduced from " + before + " to " + this.GridSizeX + " x " + this.GridSizeY + " x " + this.GridSizeZ + " cubes\n(deltas and dt doubled, sources moved to the new cubes).\n\nPlace a dipole after the Redux: a wire one cube thick may fall between the cubes that are kept.", "Redux", JOptionPane.INFORMATION_MESSAGE);
     }
 
     async OpenNewModel() {
@@ -327,7 +396,6 @@ export class TelaInicial extends JFrame {
         this.mat = new Array(this.MaxNumMaterials);
         this.NumMaterials = 0;
         this.NumSources = 0;
-        this.dt = 0;
 
         const tokens = (s) => String(s).split(',').map(t => t.trim()).filter(t => t.length);
         const intValue = (s, err) => { if (!/^[+-]?\d+$/.test(String(s).trim())) throw new Error(err); return parseInt(s, 10); };
@@ -367,6 +435,43 @@ export class TelaInicial extends JFrame {
         if (this.dx <= 0 || this.dy <= 0 || this.dz <= 0)
             throw new Error("ModelLoader.DeltaFormatError");
         console.log("*** TelaInicial::ReadInputXMLFile():: dx = " + this.dx + ", dy = " + this.dy + ", dz = " + this.dz);
+
+        // 2008: the parameters of the calculations.  2010 threw an error
+        // when one was missing; Phoenix: files of 2007 get the defaults below.
+        this.defaultsUsed = [];
+        const param = (attr, parse, def, err, check) => {
+            const a = root.getAttributeValue(attr);
+            if (a == null) { this.defaultsUsed.push(attr); return def; }
+            const v = parse(tokens(a)[0], "ModelLoader." + err + "FormatError");
+            if (check && !check(v)) throw new Error("ModelLoader." + err + "FormatError");
+            return v;
+        };
+        const c3e8 = 3e8;
+        const DTcourant = 1 / (c3e8 * Math.sqrt(1 / (this.dx * this.dx) + 1 / (this.dy * this.dy) + 1 / (this.dz * this.dz)));
+        // Get dt
+        this.dt = param("dt", doubleValue, DTcourant, "DeltaT", v => v > 0);
+        console.log("*** TelaInicial::ReadInputXMLFile():: dt = " + this.dt);
+        // Get N   (2010 added 1 here and CalculateEHFrameParallel added 1 again: N is now the last step)
+        this.N = param("N", intValue, 1000, "Nmax", v => v > 0);
+        console.log("*** TelaInicial::ReadInputXMLFile():: N = " + this.N);
+        // Get reduzN
+        this.reduzN = param("reduzN", intValue, 100, "ReduzN", v => v > 0);
+        console.log("*** TelaInicial::ReadInputXMLFile():: reduzN = " + this.reduzN);
+        // Get dtt
+        this.dtt = param("dtt", doubleValue, 1, "DeltaTT", v => v > 0);
+        console.log("*** TelaInicial::ReadInputXMLFile():: dtt = " + this.dtt);
+        // Get NT
+        this.NT = param("NT", intValue, 10001, "NmaxT", v => v > 0);
+        // Get reduzNT
+        this.reduzNT = param("reduzNT", intValue, 1000, "ReduzNT", v => v > 0);
+        console.log("*** TelaInicial::ReadInputXMLFile():: reduzNT = " + this.reduzNT);
+        this.Temps = new Array(3);
+        this.Temps[0] = param("Tenv", doubleValue, 25, "Tenv");
+        this.Temps[1] = param("Tblood", doubleValue, 36.8, "Tblood");
+        this.Temps[2] = param("Ttissues", doubleValue, 36.8, "Ttissues");
+        console.log("*** TelaInicial::ReadInputXMLFile():: Tenv = " + this.Temps[0] + ", Tblood = " + this.Temps[1] + ", Ttissues = " + this.Temps[2]);
+        this.hc = param("hc", doubleValue, 2.7, "Hc");
+        console.log("*** TelaInicial::ReadInputXMLFile():: Hc = " + this.hc);
 
         // Read the materials specification
         const materials = root.getChild("materials");
@@ -438,7 +543,8 @@ export class TelaInicial extends JFrame {
             this.mat[i].SetTParam(Mc, Mk, Mbf, Mhm, Mkevap, Me);
 
             for (let ff = 0; ff < this.nFreq; ff++) {
-                const vel = this.mat[i].velocity(ff);
+                let vel = this.mat[i].velocity(ff);
+                vel = 3e8; //maior velocidade e' no ar
                 const DTmax = 1 / (vel * Math.sqrt(1 / (this.dx * this.dx) + 1 / (this.dy * this.dy) + 1 / (this.dz * this.dz)));
                 if (this.dt > DTmax) {
                     console.log("** TelaInicial::ReadInputXLMFile():: dt > DTmax em " + this.mat[i].name(0) + ". Alterando para dt = " + DTmax + "s.");
@@ -453,22 +559,46 @@ export class TelaInicial extends JFrame {
         this.mat = temp;
 
         // Read the sources specification
+        this.S = [];
         const sources = root.getChild("sources");
-        if (sources == null)
-            throw new Error("ModelLoader.NoSourcesError");
-        const srcs = sources.getChildren("source");
+        const srcs = sources == null ? [] : sources.getChildren("source");
         if (srcs.length === 0)
-            throw new Error("ModelLoader.EmptySourcesException");
-
-        this.S = new Array(srcs.length);
+            console.log("*** TelaInicial::REadInputXMLFile()):: NO SOURCES FOUND!!");
         for (let i = 0; i < srcs.length; i++) {
             const source = srcs[i];
             const type = source.getAttributeValue("type") || "";
+            let field = source.getAttributeValue("field");
+            let axis = source.getAttributeValue("axis");
+            let plane = null;
+            if (type.toLowerCase() === "planewave") {
+                plane = source.getAttributeValue("plane");
+                if (plane == null)
+                    throw new Error("ModelLoader.SourcePlaneEmptyError");
+            }
+            if (type.toLowerCase() === "linear")
+                throw new Error("ModelLoader: linear sources were removed in 2010 (use Tools → Place Dipole Antenna)");
             const slocation = tokens(source.getAttributeValue("location") || "");
-            const location = [-1, -1, -1];
+            let location = [-1, -1, -1];
             for (let q = 0; q < 3; q++) if (q < slocation.length && /^\d+$/.test(slocation[q])) location[q] = parseInt(slocation[q], 10);
             if (location[0] < 0 || location[1] < 0 || location[2] < 0)
-                throw new Error("ModelLoader.SourceLoacationFormatError");
+                throw new Error("ModelLoader.SourceLocationFormatError");
+            if (field == null && axis == null) {
+                // Phoenix: a 2007 source, on a point of the expanded grid; its
+                // parity says the component (odd,odd,even = Hz ...)
+                const odd = location.map(v => v & 1);
+                const nOdd = odd[0] + odd[1] + odd[2];
+                if (nOdd === 1) { field = "E"; axis = "xyz"[odd.indexOf(1)]; }
+                else if (nOdd === 2) { field = "H"; axis = "xyz"[odd.indexOf(0)]; }
+                else throw new Error("ModelLoader: the 2007 source at (" + location.join(",") + ") is on no field component");
+                location = location.map(v => v >> 1);
+                this.defaultsUsed.push("source " + (i + 1) + " (2007 → " + field + axis + " in cube " + location.join(",") + ")");
+            }
+            if (field == null)
+                throw new Error("ModelLoader.SourceFieldEmptyError");
+            if (axis == null)
+                throw new Error("ModelLoader.SourceAxisEmptyError");
+            if (location[0] >= this.GridSizeX || location[1] >= this.GridSizeY || location[2] >= this.GridSizeZ)
+                throw new Error("ModelLoader: source " + (i + 1) + " is outside the model");
 
             const smaxValue = source.getAttributeValue("maxValue");
             let maxValue = 0.0;
@@ -483,19 +613,18 @@ export class TelaInicial extends JFrame {
                 throw new Error("ModelLoader.SourceUnitEmptyError");
             const hardsource = Shardsource.trim().toLowerCase() === "true";
 
+            let src = null;
             if (type.toLowerCase() === "puntual") {
-                this.S[i] = new PuntualSource(type, location, maxValue, this.Freq, unit, hardsource);
+                src = new PuntualSource(type, field, axis, location, maxValue, this.Freq, unit, hardsource);
                 console.log("*** TelaInicial::ReadInputXMLFile():: Fonte Puntual em (" + location[0] + "," + location[1] + "," + location[2] + ").");
             }
-            if (type.toLowerCase() === "linear") {
-                const axis = source.getAttributeValue("axis");
-                const field = source.getAttributeValue("field");
-                const init = intValue(source.getAttributeValue("init"), "ModelLoader.SourceInitFormatError");
-                const end = intValue(source.getAttributeValue("end"), "ModelLoader.SourceEndFormatError");
-                console.log("   ** TelaInicial::ReadIputXMLFile()::Fonte Linear em " + field + " no eixo " + axis);
-                this.S[i] = new LinearSource(axis, field, init, end, type, location, maxValue, this.Freq, unit, hardsource);
+            if (type.toLowerCase() === "planewave") {
+                src = new PlaneWaveSource(type, field, axis, plane, location, maxValue, this.Freq, unit, hardsource);
+                console.log("*** TelaInicial::ReadInputXMLFile():: Fonte PlaneWave em (" + location[0] + "," + location[1] + "," + location[2] + ").");
             }
-            if (!this.S[i]) throw new Error("ModelLoader: unknown source type \"" + type + "\"");
+            if (!src) throw new Error("ModelLoader: unknown source type \"" + type + "\"");
+            console.log("** TelaInicial::ReadXLM:: Fonte " + type + " no campo " + field + axis + " = " + location[0] + "," + location[1] + "," + location[2] + " com valor maximo = " + smaxValue + unit + ".");
+            this.S.push(src);
             this.NumSources++;
         }
 
@@ -510,6 +639,8 @@ export class TelaInicial extends JFrame {
 
         this.model = new Model(this.SimulName, this.GridSizeX, this.GridSizeY, this.GridSizeZ, this.dx, this.dy, this.dz);
         TelaInicial.readModelData(bytes, this.model, this.NumMaterials);
+        this.SAR = new Field(this.GridSizeX, this.GridSizeY, this.GridSizeZ, "SAR", 0);
+        this.SARName = null;
 
         try {
             const SD = new SimulData(this.model.name(), this.model.x(), this.model.y(), this.model.z(), this.model.dx(), this.model.dy(), this.model.dz(), this.mat, this.NumMaterials);
@@ -523,9 +654,12 @@ export class TelaInicial extends JFrame {
         this.CalculateEHMenu.setEnabled(true);
         this.CalculateTMenu.setEnabled(true);
         this.MenuRedux.setEnabled(true);
+        this.MenuDipole.setEnabled(true);
+        this.CalculateSAR_TMenu.setEnabled(true);
         this.ModelWasRead = true;
         this.EHwasCalculated = false;
-        this.setStatus(this.SimulName + ": " + this.GridSizeX + " × " + this.GridSizeY + " × " + this.GridSizeZ + " cubes, " + this.NumMaterials + " materials");
+        this.setStatus(this.SimulName + ": " + this.GridSizeX + " × " + this.GridSizeY + " × " + this.GridSizeZ + " cubes, " + this.NumMaterials + " materials" +
+            (this.defaultsUsed.length ? " (2007 file: defaults for " + this.defaultsUsed.join(", ") + ")" : ""));
         this.publishModel();
     }
 
@@ -572,7 +706,7 @@ export class TelaInicial extends JFrame {
             name: this.SimulName, dims: [this.model.x(), this.model.y(), this.model.z()], deltas: [this.dx, this.dy, this.dz],
             codes: this.model.getData(),
             materials: this.mat.map(m => ({ code: m.code(), name: m.name(), color: [m.color().getRed(), m.color().getGreen(), m.color().getBlue()] })),
-            sources: this.S.map(s => s.getLocation()),
+            sources: this.S.map(s => s.getLocation().slice()),
         };
     }
 

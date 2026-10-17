@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!-- Created by Ana Rodrigues on September 28, 2005, 16:44 PM -->
-<MaterialModel name="Cube_21_21_21" dimention="21,21,21" deltas="0.05,0.05,0.05" frequency="1.8E9">
+<MaterialModel name="Cube_21_21_21" dimention="21,21,21" deltas="0.05,0.05,0.05" frequency="1.8E9" dt="9.6E-11" N="300" reduzN="20" dtt="1.0" NT="10001" reduzNT="1000" Tenv="25.0" Tblood="36.8" Ttissues="36.8" hc="2.7">
 <sources>
-<source type="puntual" location="21,21,20" maxValue="1.0" unit="default" hard="true"></source>
+<source type="puntual" field="E" axis="z" location="10,10,10" maxValue="1.0" unit="V/m" hard="true"></source>
 </sources>
 <materials>
 <material code="1" color="0,0,0" name="Air" transparency="0.0" visible="false" muR="1.0" epR="1.0" si="0.0" siC="0.0" density="0.0016" C="0.28" k="0.0263" bf="0.0" hm="0.0"  e="0.0" kevap="0.0"  ></material>

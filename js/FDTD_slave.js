@@ -1,7 +1,7 @@
 /*
  * FDTD_slave.js
  *
- * Created on 6 de Marco de 2006, 13:02   (FDTD_slave.java)
+ * Created on 6 de Marco de 2006, 13:02   (FDTD_slave.java, version of 27/5/2010)
  * Ported to JavaScript in 2026 (CelCamp Phoenix).
  *
  * @author Ana de Oliveira Rodrigues
@@ -9,26 +9,35 @@
  *
  * One slave of the parallel FD-TD calculation of the electromagnetic field.
  * The master (CalculateEHFrameParallel) cuts the expanded model in slices
- * along X; neighbouring slices share one plane and exchange their borders
- * every time step.  In 2006 every slave was a JVM started by jpvmDaemon; now
- * every slave is a Web Worker.
+ * along X; neighbouring slices share one plane.  In 2006 every slave was a
+ * JVM started by jpvmDaemon; now every slave is a Web Worker.
  *
- * Phoenix notes (changes to the 2007 behaviour are marked "Phoenix:"):
- *  - material properties are looked up in a table indexed by material code
- *    instead of a linear search for every point (same result, much faster);
- *  - the H loop and the conductor loop used Mat[code] (an array index) where
- *    the material *code* was meant: Mat[16] is code 17, so e.g. Hypotalamus
- *    was treated as copper.  All lookups now go by code;
- *  - the H coefficient was written a=(2*-siC*dt)/(2*mu+siC*dt), which is 0
- *    for siC=0, so H forgot its previous value every step.  It is now
- *    a=(2*mu-siC*dt)/(2*mu+siC*dt);
- *  - FreqIndex was fixed at 1 in the slave; the index chosen in the window
- *    is now used;
- *  - sources were placed using i+(ModelX*slaveID); the slices overlap by
- *    one plane, so the global X is i+Xoffset sent by the master;
- *  - the partial field is sent to the master only every `skip` steps (as
- *    FDTD_T_slave already did since 10/4/2007), with a small back-pressure
- *    so a slow master cannot be flooded.
+ * Every time step, as in May 2010:
+ *   1) Pre-FDTD: the hard voltage sources (Elsherbeni & Demir 2009, 4.1.2)
+ *      on the 4 parallel edges of the source cube;
+ *   2) H (that has no boundary condition, by its position in the cube);
+ *   3) E in the interior;
+ *   4) Mur's boundary condition on the faces and on the edges x=y=0,
+ *      x=z=0 and y=z=0;
+ *   5) Pos-FDTD: E along the source axis is zeroed in the cubes of
+ *      materials called "source..." or "copper..." (the dipole wire);
+ *   6) the three time levels are shifted;
+ *   7) |E| at the cube centres goes to the master every nSkip steps.
+ *
+ * Phoenix notes:
+ *  - in 2010 the master always used NPROC = 1: the borders were exchanged
+ *    before the H update (so E on the shared plane used the H of the
+ *    previous step), the shared plane was updated twice and the source
+ *    offsets ignored the overlap of the slices.  Now the right slave sends
+ *    its H after (2), the left slave owns the shared plane and sends it back
+ *    after (5), so any NPROC gives the result of NPROC = 1;
+ *  - only |E| at the cube centres goes to the master (the 2010 master wrote
+ *    nothing else: EscreveH() was called with writeH = false), and the
+ *    fields are kept in Float32Array: the head fits in a browser;
+ *  - optionally the slave averages |E|^2 over the last period, for the
+ *    SAR -> T calculation (2010 read that E^2 from a file made elsewhere);
+ *  - material properties come from tables indexed by material code instead
+ *    of a linear search for every point (same values).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -38,6 +47,7 @@ import { Field } from './Field.js';
 
 const TAG_ACK = 905;           // Phoenix: master -> slave "partial received"
 const MAX_UNACKED = 2;
+const TAG_E2 = 950;            // Phoenix: slave -> master, mean E^2 per cube
 
 export class FDTD_slave {
 
@@ -52,8 +62,6 @@ export class FDTD_slave {
         let parent = null;
         let myself = null;
         let tagAtual = 12344;
-        let host = null;
-        let port = 0;
         try {
             // Enroll in the parallel virtual machine...
             jpvm = new jpvmEnvironment();
@@ -61,8 +69,6 @@ export class FDTD_slave {
             parent = jpvm.pvm_parent();
             // Get my task id...
             myself = jpvm.pvm_mytid();
-            host = myself.getHost();
-            port = myself.getPort();
             //Error log
             const logfile = ("LOG:" + myself.getHost() + ":" + myself.getPort() + ".log");
             const print = PvmUtil.openLog(jpvm, logfile);
@@ -94,9 +100,9 @@ export class FDTD_slave {
             const slaveID = message.buffer.upkint();
             const NPROC = message.buffer.upkint();
             const nMax = message.buffer.upkint();
-            const skip = message.buffer.upkint(); // Phoenix
+            const nSkip = message.buffer.upkint();
             //confirma que recebeu:
-            texto = "Recebeu SlaveID = " + slaveID + ", NPROC = " + NPROC + ", Nmax = " + nMax + ".";
+            texto = "Recebeu SlaveID = " + slaveID + ", NPROC = " + NPROC + ", Nmax = " + nMax + " e nSkip = " + nSkip + ".";
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, texto, tagAtual);
             //recebe os vizinhos
@@ -117,9 +123,12 @@ export class FDTD_slave {
             const dy = message.buffer.upkdouble();
             const dz = message.buffer.upkdouble();
             const dt = message.buffer.upkdouble();
+            const FreqIndex = message.buffer.upkint();
             const CCAtype = message.buffer.upkchar();
             const CCAorder = message.buffer.upkint();
-            const Xoffset = message.buffer.upkint(); // Phoenix: global X of local i=0
+            const Xoffset = message.buffer.upkint();   // Phoenix: global X of local i=0
+            const GlobalX = message.buffer.upkint();   // Phoenix: size of the whole model
+            const nRecordE2 = message.buffer.upkint(); // Phoenix: steps of the E^2 average (0 = off)
             //confirma que recebeu o tamanho:
             texto = "Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ")";
             tagAtual++;
@@ -140,14 +149,16 @@ export class FDTD_slave {
             tagAtual++;
             const S = await PvmUtil.receiveSources(jpvm, tagAtual);
             //confirma que recebeu as fontes:
-            let mes = "Recebeu " + S.length + " fontes.";
+            let printSource = "";
+            for (let nf = 0; nf < S.length; nf++) {
+                printSource = printSource + "\n       Fonte " + nf + " no ponto [" + S[nf].Location[0] + "," + S[nf].Location[1] + "," + S[nf].Location[2] + "], com freq = " + S[nf].f[FreqIndex] + " e max = " + S[nf].MaxValue;
+            }
+            let mes = "Recebeu " + S.length + " fontes: " + printSource;
             tagAtual++;
             PvmUtil.sendMessageToParent(jpvm, parent, mes, tagAtual);
             //recebe materiais:
             tagAtual++;
-            let FreqIndex = 1;
             const Mat = await PvmUtil.receiveMaterials(jpvm, FreqIndex, tagAtual);
-            FreqIndex = Mat.FreqIndex; // Phoenix
             //confirma que recebeu materiais:
             mes = "Recebeu " + Mat.length + " materiais com o primeiro sendo " + Mat[0].name();
             tagAtual++;
@@ -160,25 +171,61 @@ export class FDTD_slave {
             const EH = new Array(3);
             const initValue = 0;
             for (let tam = 0; tam < 3; tam++) {
-                EH[tam] = new Field(ModelX, ModelY, ModelZ, "EH", initValue);
+                EH[tam] = new Field(ModelX, ModelY, ModelZ, "EH", initValue, Float32Array);
             }
 
             // 5) CALCULA O FD-TD
             tagAtual++;
             const tamCel = 3;
-            const BorderLeft = new Float64Array(tamCel * ModelY * ModelZ);  // [3][ModelY][ModelZ]
-            const BorderRight = new Float64Array(tamCel * ModelY * ModelZ);
             const plane = ModelY * ModelZ;
+            const BorderLeft = new Float64Array(tamCel * plane);   // [3][ModelY][ModelZ]
+            const BorderRight = new Float64Array(tamCel * plane);
             const B1 = 1 * plane, B2 = 2 * plane;   // offsets of BorderX[1] and BorderX[2]
 
             const hasLeft = Left.getPort() !== 0;
             const hasRight = Right.getPort() !== 0;
             const SegundaOrdem = (CCAorder === 2);
             const model = ModeloLocal.getData();
-            const w0 = ModelY * ModelZ, w1 = ModelZ;
-            const srcBoxes = S.map(s => s.bounds());
-            const location = [0, 0, 0];
+            const w0 = plane, w1 = ModelZ;
+            const X = ModelX, Y = ModelY, Z = ModelZ;
+            const E0 = EH[0].getData(), E1 = EH[1].getData(), E2 = EH[2].getData();
+
+            // the sources: main point (global, expanded grid) and the points it drives
+            const setFourPoints = true;
+            const sources = S.map((s) => {
+                const main = s.globalLocation();
+                const targets = [main];
+                const isE = s.getField().toUpperCase() === "E";
+                if (setFourPoints && isE) {
+                    const a = s.getAxis().toLowerCase();
+                    const offs = a === "x" ? [[0, 2, 0], [0, 0, 2], [0, 2, 2]]
+                               : a === "y" ? [[2, 0, 0], [0, 0, 2], [2, 0, 2]]
+                               :             [[2, 0, 0], [0, 2, 0], [2, 2, 0]];
+                    for (const o of offs) targets.push([main[0] + o[0], main[1] + o[1], main[2] + o[2]]);
+                }
+                const local = (t) => (t[0] - Xoffset >= 0 && t[0] - Xoffset < X && t[1] < Y && t[2] < Z) ? (t[0] - Xoffset) * w0 + t[1] * w1 + t[2] : -1;
+                return { s, main, mainLocal: local(main), targets: targets.map(local).filter(p => p >= 0) };
+            });
+            const mainsLocal = sources.map(q => q.mainLocal).filter(p => p >= 0);
+            const saved = new Float32Array(mainsLocal.length);
+            const keepMains = () => { for (let q = 0; q < mainsLocal.length; q++) saved[q] = E0[mainsLocal[q]]; };
+            const restoreMains = () => { for (let q = 0; q < mainsLocal.length; q++) E0[mainsLocal[q]] = saved[q]; };
+
+            // 5) Pos-FDTD: every source must have the same axis
+            const axis = S[0].Axis;
+            for (let f = 1; f < S.length; f++) {
+                if (S[f].Axis.toLowerCase() !== axis.toLowerCase()) {
+                    throw new Error("Sources have different axis!!! Not impelemented!!!");
+                }
+            }
+            const axisIndex = "xyz".indexOf(axis.toLowerCase());
+
+            // Phoenix: |E|^2 at the cube centres, summed over the last nRecordE2 steps
+            const cubesX = (X - 1) >> 1, cubesY = (Y - 1) >> 1, cubesZ = (Z - 1) >> 1;
+            const E2sum = nRecordE2 > 0 ? new Float64Array(cubesX * cubesY * cubesZ) : null;
+
             let unacked = 0;
+            let foundSourceLogged = false;
 
             for (let n = 0; n < nMax; n++) {
                 // ENVIA O N PARA A MASTER:
@@ -189,308 +236,308 @@ export class FDTD_slave {
 
                 // FAZ O CALCULO:
                 // --------------
+
                 /**
                  * 1) Pre-FDTD para as Fontes:
+                 * FONTES INCLUIDAS EM 2008:
                  */
-                //Nao implementado
-
-                // ENVIA E RECEBE BORDAS: (13/12/2006)
-                //------------------------------------
-                // (in 2006 four threads did this; postMessage never blocks)
-                if (hasLeft) PvmUtil.sendBorder(jpvm, EH[0], 'l', Left, 555);
-                if (hasRight) PvmUtil.sendBorder(jpvm, EH[0], 'r', Right, 666);
-                if (hasRight) await PvmUtil.receiveBorder(jpvm, BorderRight, Right, 555);
-                if (hasLeft) await PvmUtil.receiveBorder(jpvm, BorderLeft, Left, 666);
-
-                const E0 = EH[0].getData();
-
-                /**
-                 * 2) Faz o E:
-                 *      excluindo os limites minimos (i=0, j=0, k=0)
-                 *      incluindo os limites maximos (i==TX-1, j==TY-1, k==TZ-1)
-                 */
-                for (let i = 0; i < ModelX; i++) {
-                    for (let j = 0; j < ModelY; j++) {
-                        for (let k = 0; k < ModelZ; k++) {
-                            //testes para sair:
-                            const odd = (i & 1) + (j & 1) + (k & 1);
-                            if (odd === 2) continue; //calculando E   (isH)
-                            if (odd !== 1) continue; //vazios         (!isE)
-                            if (i === 0 || j === 0 || k === 0)
-                                continue; //(3) a seguir
-                            //PEGA OS VALORES DO PONTO
-                            const p = i * w0 + j * w1 + k;
-                            const code = model[p];
-                            const c = T.c[code];
-                            const d = T.d[code];
-                            let vE = 0;
-                            if ((i === ModelX - 1 && !hasRight) || j === ModelY - 1 || k === ModelZ - 1) {
-                                //CCA
-                                if (CCAtype === 'm') {
-                                    const x = i, y = j, z = k;
-                                    const TamX = ModelX, TamY = ModelY, TamZ = ModelZ;
-                                    const Campos = EH[0];
-                                    const CamposAnterior = EH[1];
-                                    const CamposAntAnterior = EH[2];
-                                    // Phoenix: x-boundary only when there is no right neighbour
-                                    if (i === ModelX - 1 && !hasRight) {
-                                        if (FDTD_slave.isEy(x, y, z) || FDTD_slave.isEz(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 0, (TamX - 1), Campos, CamposAnterior, CamposAntAnterior, T.cmaX[code], T.cmbX[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 0, (TamX - 1), Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                    if (j === ModelY - 1) {
-                                        if (FDTD_slave.isEx(x, y, z) || FDTD_slave.isEz(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 1, (TamY - 1), Campos, CamposAnterior, CamposAntAnterior, T.cmaY[code], T.cmbY[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 1, (TamY - 1), Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                    if (k === ModelZ - 1) {
-                                        if (FDTD_slave.isEx(x, y, z) || FDTD_slave.isEy(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 2, (TamZ - 1), Campos, CamposAnterior, CamposAntAnterior, T.cmaZ[code], T.cmbZ[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 2, (TamZ - 1), Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                }
-                                continue;
-                            }
-                            if (i === ModelX - 1) {
-                                //tem vizinho, IMPLEMENTAR FD-TD com as bordas
-                                //Ex : Nunca tem Ex por causa da posicao no cubo
-                                const jk = j * ModelZ + k;
-                                //Ey
-                                if (!(i & 1) && (j & 1) && !(k & 1)) {
-                                    vE = c * E0[p];
-                                    vE += d * ((E0[p + 1] - E0[p - 1]) / dz);
-                                    vE += d * (-(BorderRight[B1 + jk] - E0[p - w0]) / dx);
-                                    E0[p] = vE;
-                                }
-                                //Ez
-                                if (!(i & 1) && !(j & 1) && (k & 1)) {
-                                    vE = c * E0[p];
-                                    vE += d * ((BorderRight[B1 + jk] - E0[p - w0]) / dx);
-                                    vE += d * (-(E0[p + w1] - E0[p - w1]) / dy);
-                                    E0[p] = vE;
-                                }
-                                // Phoenix: fall through to the sources (2007 did `continue`
-                                // here, so a source on a shared plane was never applied)
-                            } else {
-                                //Faz o FDTD:
-                                if (i & 1) {            // isEx (odd, even, even)
-                                    vE = c * E0[p];
-                                    vE += d * ((E0[p + w1] - E0[p - w1]) / dy);
-                                    vE += d * (-(E0[p + 1] - E0[p - 1]) / dz);
-                                    E0[p] = vE;
-                                } else if (j & 1) {     // isEy (even, odd, even)
-                                    vE = c * E0[p];
-                                    vE += d * ((E0[p + 1] - E0[p - 1]) / dz);
-                                    vE += d * (-(E0[p + w0] - E0[p - w0]) / dx);
-                                    E0[p] = vE;
-                                } else {                // isEz (even, even, odd)
-                                    vE = c * E0[p];
-                                    vE += d * ((E0[p + w0] - E0[p - w0]) / dx);
-                                    vE += d * (-(E0[p + w1] - E0[p - w1]) / dy);
-                                    E0[p] = vE;
-                                }
-                            }
-                            //fontes em E:
-                            for (let s = 0; s < S.length; s++) {
-                                const gi = i + Xoffset; //coloca apenas no slave correto
-                                const bb = srcBoxes[s];
-                                if (gi < bb[0] || gi > bb[1] || j < bb[2] || j > bb[3] || k < bb[4] || k > bb[5]) continue;
-                                location[0] = gi; location[1] = j; location[2] = k;
-                                if (S[s].isSource(location)) {
-                                    const freq = S[s].f[FreqIndex];
-                                    const valorSource = S[s].calculateSource(n, freq, dt);
-                                    if (S[s].isHard())
-                                        vE = valorSource;
-                                    else
-                                        vE += valorSource;
-                                    if (n < 20 || n % 100 === 0) print.println("N =" + n + " -> Source = " + vE);
-                                    E0[p] = vE;
-                                }
-                            }
-                        }
+                for (let q = 0; q < sources.length; q++) {
+                    const src = sources[q];
+                    if (!src.targets.length) continue;
+                    // E(i,j,k,n) of the main point: here, or (just left of the
+                    // shared plane) in the left slave's plane sent at the end of the last step
+                    let Emain;
+                    if (src.mainLocal >= 0) Emain = E0[src.mainLocal];
+                    else Emain = BorderLeft[src.main[1] * ModelZ + src.main[2]];
+                    const freq = src.s.f[FreqIndex];
+                    const Max = src.s.MaxValue;
+                    const angle = (2 * Math.PI * freq * (n + 0.5) * dt); //em radianos
+                    //Mudado em 12/05/2010
+                    //Referencia: "The Finite-Difference Time-Domain Method for Electromagnetics with MATLAB Simulations
+                    //            Atef Elsherbeni and Veysel Demir, 2009, pag.74, 4.1.2 Hard Voltage Source
+                    //HARD SOURCE: E(i,j,k,n+1) = -E(i,j,k,n)-2* V(t+1/2)/dz
+                    // Como V = Vo*sin(w*t) e E = V/dz, dai:
+                    //          SOURCE = -E(i,j,k,n) - 2*Eo*sin(w*t+1/2)*
+                    const vS = -Emain - 2 * (Max * Math.sin(angle));
+                    for (const p of src.targets) {
+                        if (src.s.isHard()) E0[p] = vS;
+                        else E0[p] = vS + E0[p];
                     }
-                }
-
-                /**
-                 * Manda e recebe as bordas de novo, para calcular o E das bordas
-                 **/
-                if (hasLeft) { //manda a borda da esquerda de novo
-                    PvmUtil.sendBorder(jpvm, EH[0], 'l', Left, 5555);
-                }
-                if (hasRight) { //recebe a da direita e manda da direita
-                    PvmUtil.sendBorder(jpvm, EH[0], 'r', Right, 6666);
-                    await PvmUtil.receiveBorder(jpvm, BorderRight, Right, 5555);
-                }
-                if (hasLeft) { //recebe a da esquerda
-                    await PvmUtil.receiveBorder(jpvm, BorderLeft, Left, 6666);
-                }
-
-                /**
-                 * 3a) Phoenix: copy the left border first.  In 2007 the copy was
-                 *     done inside the loop below, after the Mur points of the
-                 *     same plane that read it (e.g. (0,0,k) reads (0,2,k)), so
-                 *     those used the value of the previous step.
-                 */
-                if (hasLeft) {
-                    for (let j = 1; j < ModelY; j++) {
-                        for (let k = 1; k < ModelZ; k++) {
-                            //Ex: nunca tem por causa da posicao no cubo
-                            //Ey e Ez: SO COPIA A BORDA!!
-                            if ((j & 1) + (k & 1) === 1) E0[j * w1 + k] = BorderLeft[B2 + j * ModelZ + k];
-                        }
-                    }
-                }
-
-                /**
-                 * 3) Faz os limites minimos (i==0, j==0, k==0)
-                 *    (same order as the 2007 triple loop, visiting only those points)
-                 */
-                for (let i = 0; i < ModelX; i++) {
-                    for (let j = 0; j < ModelY; j++) {
-                        const kEnd = (i === 0 || j === 0) ? ModelZ : 1;
-                        for (let k = 0; k < kEnd; k++) {
-                            //PEGA OS VALORES DO PONTO
-                            const p = i * w0 + j * w1 + k;
-                            const code = model[p];
-                            const x = i, y = j, z = k;
-                            const TamX = ModelX, TamY = ModelY, TamZ = ModelZ;
-                            const Campos = EH[0];
-                            const CamposAnterior = EH[1];
-                            const CamposAntAnterior = EH[2];
-                            if ((i === 0 && !hasLeft) || j === 0 || k === 0) {
-                                //CCA
-                                if (CCAtype === 'm') {
-                                    // Phoenix: x-boundary only when there is no left neighbour
-                                    if (i === 0 && !hasLeft) {
-                                        if (FDTD_slave.isEy(x, y, z) || FDTD_slave.isEz(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 0, 0, Campos, CamposAnterior, CamposAntAnterior, T.cmaX[code], T.cmbX[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 0, 0, Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                            continue;
-                                        }
-                                    }
-                                    if (j === 0) {
-                                        if (FDTD_slave.isEx(x, y, z) || FDTD_slave.isEz(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 1, 0, Campos, CamposAnterior, CamposAntAnterior, T.cmaY[code], T.cmbY[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 1, 0, Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                    if (k === 0) {
-                                        if (FDTD_slave.isEx(x, y, z) || FDTD_slave.isEy(x, y, z)) {
-                                            FDTD_slave.Mur1aOrdem(x, y, z, 2, 0, Campos, CamposAnterior, CamposAntAnterior, T.cmaZ[code], T.cmbZ[code]);
-                                            if (SegundaOrdem) {
-                                                FDTD_slave.Mur2aOrdem(x, y, z, 2, 0, Campos, CamposAnterior, CamposAntAnterior, FDTD_slave.const2aOrdem, TamX, TamY, TamZ);
-                                            }
-                                        }
-                                        continue;
-                                    }
-                                }
-                                continue;
-                            }
-                            //IMPLEMENTAR FDTD com as bordas: copied in 3a)
-                        }
-                    }
+                    if (n < 3) PvmUtil.log(myself, "N = " + n + ": Emax = Max e Setou valor = " + vS + " em " + src.main.join(",") + ".");
                 }
 
                 /** 4) Faz o H (que nao tem CC por causa da posicao no cubo)
                  */
-                for (let i = 0; i < ModelX; i++) {
-                    for (let j = 0; j < ModelY; j++) {
-                        for (let k = 0; k < ModelZ; k++) {
-                            //testes para sair:
-                            const odd = (i & 1) + (j & 1) + (k & 1);
-                            if (odd === 1) continue; //calculando H   (isE)
-                            if (odd !== 2) continue; //vazios         (!isH)
-                            //Mur's Absorbing Condition
-                            //nao ha cc para campos magneticos
-                            //faz o FD-TD:
-                            const p = i * w0 + j * w1 + k;
-                            const code = model[p];
-                            const a = T.a[code];
-                            const b = T.b[code];
-                            let vH = 0;
-                            if (!(i & 1)) {           // isHx (even, odd, odd)
-                                vH = a * E0[p];
+                keepMains(); //fonte ja calculada
+                for (let i = 0; i < X; i++) {
+                    const io = i & 1;
+                    for (let j = 0; j < Y; j++) {
+                        const jo = j & 1;
+                        const r = i * w0 + j * w1;
+                        if (!io && jo) {            // isHx (even, odd, odd)
+                            for (let k = 1; k < Z; k += 2) {
+                                const p = r + k;
+                                const code = model[p];
+                                const a = T.a[code], b = T.b[code];
+                                let vH = a * E0[p];
                                 vH += b * ((E0[p + 1] - E0[p - 1]) / dz);
                                 vH += b * (-(E0[p + w1] - E0[p - w1]) / dy);
                                 E0[p] = vH;
-                            } else if (!(j & 1)) {    // isHy (odd, even, odd)
-                                vH = a * E0[p];
+                            }
+                        } else if (io && !jo) {     // isHy (odd, even, odd)
+                            for (let k = 1; k < Z; k += 2) {
+                                const p = r + k;
+                                const code = model[p];
+                                const a = T.a[code], b = T.b[code];
+                                let vH = a * E0[p];
                                 vH += b * ((E0[p + w0] - E0[p - w0]) / dx);
                                 vH += b * (-(E0[p + 1] - E0[p - 1]) / dz);
                                 E0[p] = vH;
-                            } else {                  // isHz (odd, odd, even)
-                                vH = a * E0[p];
+                            }
+                        } else if (io && jo) {      // isHz (odd, odd, even)
+                            for (let k = 0; k < Z; k += 2) {
+                                const p = r + k;
+                                const code = model[p];
+                                const a = T.a[code], b = T.b[code];
+                                let vH = a * E0[p];
                                 vH += b * ((E0[p + w1] - E0[p - w1]) / dy);
                                 vH += b * (-(E0[p + w0] - E0[p - w0]) / dx);
                                 E0[p] = vH;
                             }
-                            //fontes em H:
-                            for (let s = 0; s < S.length; s++) {
-                                const gi = i + Xoffset; //coloca a fonte apenas no slave correto
-                                const bb = srcBoxes[s];
-                                if (gi < bb[0] || gi > bb[1] || j < bb[2] || j > bb[3] || k < bb[4] || k > bb[5]) continue;
-                                location[0] = gi; location[1] = j; location[2] = k;
-                                if (S[s].isSource(location)) {
-                                    const freq = S[s].f[FreqIndex];
-                                    const valorSource = S[s].calculateSource(n, freq, dt);
-                                    if (S[s].isHard())
-                                        vH = valorSource;
-                                    else
-                                        vH += valorSource;
-                                    E0[p] = vH;
+                        }
+                    }
+                }
+                restoreMains();
+
+                // ENVIA E RECEBE BORDAS: (13/12/2006)
+                // Phoenix: after H, the right slave sends its first planes to the left one
+                if (hasLeft) PvmUtil.sendBorder(jpvm, EH[0], 'l', Left, 555);
+                if (hasRight) await PvmUtil.receiveBorder(jpvm, BorderRight, Right, 555);
+
+                /**
+                 * 2) Faz o E:
+                 *      excluindo os limites minimos (i=0, j=0, k=0)
+                 *     17/12/08 -  excluindo os limites maximos (i==TX-1, j==TY-1, k==TZ-1)
+                 *     (with a right neighbour the last plane is computed here, with BorderRight[1])
+                 */
+                keepMains(); //fonte ja calculada
+                const iEnd = hasRight ? X : X - 1;
+                for (let i = 1; i < iEnd; i++) {
+                    const seam = (i === X - 1);
+                    for (let j = 1; j < Y - 1; j++) {
+                        const r = i * w0 + j * w1;
+                        if (i & 1) {
+                            if (j & 1) continue;
+                            for (let k = 2; k < Z - 1; k += 2) {     // isEx (odd, even, even)
+                                const p = r + k;
+                                const code = model[p];
+                                const c = T.c[code], d = T.d[code];
+                                let vE = c * E0[p];
+                                vE += d * ((E0[p + w1] - E0[p - w1]) / dy);
+                                vE += d * (-(E0[p + 1] - E0[p - 1]) / dz);
+                                E0[p] = vE;
+                            }
+                        } else if (j & 1) {
+                            for (let k = 2; k < Z - 1; k += 2) {     // isEy (even, odd, even)
+                                const p = r + k;
+                                const code = model[p];
+                                const c = T.c[code], d = T.d[code];
+                                const xPlus = seam ? BorderRight[B1 + j * ModelZ + k] : E0[p + w0];
+                                let vE = c * E0[p];
+                                vE += d * ((E0[p + 1] - E0[p - 1]) / dz);
+                                vE += d * (-(xPlus - E0[p - w0]) / dx);
+                                E0[p] = vE;
+                            }
+                        } else {
+                            for (let k = 1; k < Z - 1; k += 2) {     // isEz (even, even, odd)
+                                const p = r + k;
+                                const code = model[p];
+                                const c = T.c[code], d = T.d[code];
+                                const xPlus = seam ? BorderRight[B1 + j * ModelZ + k] : E0[p + w0];
+                                let vE = c * E0[p];
+                                vE += d * ((xPlus - E0[p - w0]) / dx);
+                                vE += d * (-(E0[p + w1] - E0[p - w1]) / dy);
+                                E0[p] = vE;
+                            }
+                        }
+                    }
+                }
+                restoreMains();
+
+                /**
+                 * 3) Faz os limites (the faces of the whole model), in the
+                 *    order of the 2010 triple loop, visiting only those points.
+                 *    The shared plane of a right slave belongs to its left neighbour.
+                 */
+                const iStart = hasLeft ? 1 : 0;
+                for (let i = iStart; i < X; i++) {
+                    const gi = i + Xoffset;
+                    const xFace = (gi === 0 || gi === GlobalX - 1);
+                    for (let j = 0; j < Y; j++) {
+                        const wholeRow = xFace || j === 0 || j === Y - 1;
+                        const kStep = wholeRow ? 1 : Z - 1;
+                        for (let k = 0; k < Z; k += kStep) {
+                            const odd = (i & 1) + (j & 1) + (k & 1);
+                            if (odd !== 1) continue; // so tem cc no E
+                            if ((gi === 0 && j === 0) || (gi === 0 && k === 0) || (k === 0 && j === 0)) //frestas
+                                continue;
+                            const p = i * w0 + j * w1 + k;
+                            const code = model[p];
+                            const isEx = (i & 1) === 1, isEy = (j & 1) === 1, isEz = (k & 1) === 1;
+                            //Faz os maximos
+                            if (gi === GlobalX - 1 || j === Y - 1 || k === Z - 1) {
+                                //CCA
+                                if (gi === GlobalX - 1) {
+                                    if (isEy || isEz) {
+                                        FDTD_slave.mur(E0, E1, E2, p, -2 * w0, T.cmaX[code], T.cmbX[code]);
+                                        if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                    }
+                                    continue;
+                                }
+                                if (j === Y - 1) {
+                                    if (isEx || isEz) {
+                                        FDTD_slave.mur(E0, E1, E2, p, -2 * w1, T.cmaY[code], T.cmbY[code]);
+                                        if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                    }
+                                    continue;
+                                }
+                                if (k === Z - 1) {
+                                    if (isEx || isEy) {
+                                        FDTD_slave.mur(E0, E1, E2, p, -2, T.cmaZ[code], T.cmbZ[code]);
+                                        if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                    }
+                                    continue;
+                                }
+                                continue;
+                            }
+                            //Faz os minimos sem vizinho:
+                            if (gi === 0 || j === 0 || k === 0) {
+                                //CCA (only for Mur: the maximos above have no such test)
+                                if (CCAtype === 'm') {
+                                    if (gi === 0) {
+                                        if (isEy || isEz) {
+                                            FDTD_slave.mur(E0, E1, E2, p, 2 * w0, T.cmaX[code], T.cmbX[code]);
+                                            if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                            continue;
+                                        }
+                                    }
+                                    if (j === 0) {
+                                        if (isEx || isEz) {
+                                            FDTD_slave.mur(E0, E1, E2, p, 2 * w1, T.cmaY[code], T.cmbY[code]);
+                                            if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                        }
+                                        continue;
+                                    }
+                                    if (k === 0) {
+                                        if (isEx || isEy) {
+                                            FDTD_slave.mur(E0, E1, E2, p, 2, T.cmaZ[code], T.cmbZ[code]);
+                                            if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                                        }
+                                        continue;
+                                    }
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
+                if (!hasLeft) {
+                    for (let k = 1; k < Z; k += 2) { //borda de X com Y   (i=0, j=0: Ez)
+                        const p = k;
+                        FDTD_slave.mur(E0, E1, E2, p, 2 * w0, T.cmaX[model[p]], T.cmbX[model[p]]);
+                        if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                    }
+                    for (let j = 1; j < Y; j += 2) { //borda de X com Z   (i=0, k=0: Ey)
+                        const p = j * w1;
+                        FDTD_slave.mur(E0, E1, E2, p, 2, T.cmaZ[model[p]], T.cmbZ[model[p]]);
+                        if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                    }
+                }
+                for (let i = 1; i < X; i += 2) { //borda de Y com Z   (j=0, k=0: Ex)
+                    const p = i * w0;
+                    FDTD_slave.mur(E0, E1, E2, p, 2 * w1, T.cmaY[model[p]], T.cmbY[model[p]]);
+                    if (SegundaOrdem) FDTD_slave.Mur2aOrdem();
+                }
+
+                // 5) Pos-FDTD para as Fontes onde tem metal:
+                let foundSource = false;
+                {
+                    const ip = axisIndex === 0 ? 1 : 0, jp = axisIndex === 1 ? 1 : 0, kp = axisIndex === 2 ? 1 : 0;
+                    for (let i = ip; i < X; i += 2) {
+                        for (let j = jp; j < Y; j += 2) {
+                            for (let k = kp; k < Z; k += 2) {
+                                const p = i * w0 + j * w1 + k;
+                                if (!T.wire[model[p]]) continue;
+                                const valor = 0.0;
+                                E0[p] = valor;
+                                foundSource = true;
+                                if (setFourPoints) {
+                                    // Phoenix: points outside this slice (or the model) are skipped
+                                    if (axisIndex === 0) {
+                                        if (j + 2 < Y) E0[p + 2 * w1] = valor;
+                                        if (k + 2 < Z) E0[p + 2] = valor;
+                                        if (j + 2 < Y && k + 2 < Z) E0[p + 2 * w1 + 2] = valor;
+                                    } else if (axisIndex === 1) {
+                                        if (i + 2 < X) E0[p + 2 * w0] = valor;
+                                        if (k + 2 < Z) E0[p + 2] = valor;
+                                        if (i + 2 < X && k + 2 < Z) E0[p + 2 * w0 + 2] = valor;
+                                    } else {
+                                        if (i + 2 < X) E0[p + 2 * w0] = valor;
+                                        if (j + 2 < Y) E0[p + 2 * w1] = valor;
+                                        if (i + 2 < X && j + 2 < Y) E0[p + 2 * w0 + 2 * w1] = valor;
+                                    }
                                 }
                             }
                         }
                     }
                 }
-
-                /** 5) Pos-FDTD para as Fontes onde tem metal:
-                 */
-                if (T.anyConductor) {
-                    for (let p = 0; p < E0.length; p++) {
-                        if (!T.conductor[model[p]])
-                            continue;
-                        E0[p] = 0;
-                    }
+                if (!foundSource && !foundSourceLogged) {
+                    PvmUtil.log(myself, "WARN: Didnt find any source material in the model!!!!!!!!");
+                    foundSourceLogged = true;
                 }
 
+                /**
+                 * Manda e recebe as bordas de novo (Phoenix: the finished shared
+                 * plane goes from the left slave to the right one)
+                 **/
+                if (hasRight) PvmUtil.sendBorder(jpvm, EH[0], 'r', Right, 666);
+                if (hasLeft) {
+                    await PvmUtil.receiveBorder(jpvm, BorderLeft, Left, 666);
+                    E0.set(BorderLeft.subarray(B2, B2 + plane), 0); //SO COPIA A BORDA!!
+                }
+
+                // Phoenix: |E|^2 over the last period
+                if (E2sum && n >= nMax - nRecordE2) FDTD_slave.addE2(E0, X, Y, Z, E2sum);
+
                 /** 6) Repassa as Matrizes
+                 *  (Phoenix: only where Mur reads them - see refreshBoundary)
                  */
-                Field.Refresh(0, ModelX, 0, ModelY, 0, ModelZ, EH);
+                FDTD_slave.refreshBoundary(EH, Xoffset, GlobalX);
 
                 // ENVIA AS RESPOSTAS PARA MASTER:
                 // -------------------------------
-                // Phoenix: only every `skip` steps (the last one always goes)
-                if (n % skip === 0 || n === nMax - 1) {
+                // (Phoenix: the last step always goes)
+                if (n % nSkip === 0 || n === nMax - 1) {
                     if (unacked >= MAX_UNACKED) { await jpvm.pvm_recv(parent, TAG_ACK); unacked--; }
-                    // confirma o envio:
                     const tagResposta = 900;
                     mes = "Mandando parcial para master com tag =" + tagResposta + ".";
                     PvmUtil.sendMessageToParent(jpvm, parent, mes, (902));
                     // envia:
-                    PvmUtil.sendPartialField(jpvm, parent, EH[0], tagResposta);
+                    PvmUtil.sendPartialField(jpvm, parent, EH[0].EAtCubeCentres(), tagResposta);
                     mes = "Mandou parcial para master com tag =" + tagResposta + ".";
                     PvmUtil.sendMessageToParent(jpvm, parent, mes, (904));
                     unacked++;
                 }
             }
+
+            if (E2sum) {
+                const E2 = new Field(cubesX, cubesY, cubesZ, "E2");
+                const e2 = E2.getData();
+                // E^2 of the peak: twice the time average of |E|^2
+                for (let q = 0; q < e2.length; q++) e2[q] = 2 * E2sum[q] / nRecordE2;
+                PvmUtil.sendPartialField(jpvm, parent, E2, TAG_E2);
+            }
+            print.println("Fim: " + nMax + " passos.");
             // Exit from the parallel virtual machine
             jpvm.pvm_exit();
         } catch (jpe) {
@@ -500,7 +547,47 @@ export class FDTD_slave {
     }
 
     /**
-     * Phoenix: the coefficients of the 2007 loops, computed once per
+     * Phoenix: Field.Refresh() copied the whole grid twice per step, but the
+     * two older time levels are only read by Mur1aOrdem(), at the points of
+     * the faces and at the points 2 steps inside.  Only those layers are
+     * copied now (the result is the same, the head runs ~2x faster).
+     */
+    static refreshBoundary(EH, Xoffset, GlobalX) {
+        const F0 = EH[0], X = F0.tx, Y = F0.ty, Z = F0.tz;
+        const E0 = F0.getData(), E1 = EH[1].getData(), E2 = EH[2].getData();
+        const w0 = Y * Z, w1 = Z;
+        const xLayer = (gi) => gi === 0 || gi === 2 || gi === GlobalX - 1 || gi === GlobalX - 3;
+        const copy = (a, b) => { E2.set(E1.subarray(a, b), a); E1.set(E0.subarray(a, b), a); };
+        for (let i = 0; i < X; i++) {
+            const r = i * w0;
+            if (xLayer(i + Xoffset)) { copy(r, r + w0); continue; }
+            for (const j of [0, 2, Y - 3, Y - 1]) copy(r + j * w1, r + (j + 1) * w1);
+            for (let j = 3; j < Y - 3; j++) {
+                const q = r + j * w1;
+                for (const k of [0, 2, Z - 3, Z - 1]) { E2[q + k] = E1[q + k]; E1[q + k] = E0[q + k]; }
+            }
+        }
+    }
+
+    /** Phoenix: adds |E|^2 of every cube centre (as in Field.EAtCubeCentres) to `sum`. */
+    static addE2(d, SX, SY, SZ, sum) {
+        const w1 = SZ, w0 = SY * SZ;
+        let count = 0;
+        for (let i = 1; i < SX; i += 2) {
+            for (let j = 1; j < SY; j += 2) {
+                for (let k = 1; k < SZ; k += 2) {
+                    const p = i * w0 + j * w1 + k;
+                    const Ex = (d[p - w1 - 1] + d[p + w1 - 1] + d[p - w1 + 1] + d[p + w1 + 1]) / 4;
+                    const Ey = (d[p - w0 - 1] + d[p - w0 + 1] + d[p + w0 - 1] + d[p + w0 + 1]) / 4;
+                    const Ez = (d[p - w0 - w1] + d[p - w0 + w1] + d[p + w0 - w1] + d[p + w0 + w1]) / 4;
+                    sum[count++] += Ex * Ex + Ey * Ey + Ez * Ez;
+                }
+            }
+        }
+    }
+
+    /**
+     * Phoenix: the coefficients of the 2010 loops, computed once per
      * material code (they only depend on the material).
      */
     static materialTables(Mat, FreqIndex, dt, dx, dy, dz) {
@@ -511,25 +598,26 @@ export class FDTD_slave {
             cmaX: new Float64Array(N), cmbX: new Float64Array(N),
             cmaY: new Float64Array(N), cmbY: new Float64Array(N),
             cmaZ: new Float64Array(N), cmbZ: new Float64Array(N),
-            conductor: new Uint8Array(N), anyConductor: false,
+            wire: new Uint8Array(N),
         };
         for (let mm = 0; mm < Mat.length; mm++) {
             const mat = Mat[mm];
             const code = mat.code();
             const ep = mat.ep(FreqIndex);
             const si = mat.si(FreqIndex);
-            const cc = mat.velocity(FreqIndex);
-            T.c[code] = (2 * ep - si * dt) / (2 * ep + si * dt);
-            T.d[code] = (dt / ep) / (1 + (si * dt) / (2 * ep));
             const mu = mat.mu(FreqIndex);
             const siC = mat.siC(FreqIndex);
-            T.a[code] = (2 * mu - siC * dt) / (2 * mu + siC * dt); // Phoenix: was (2*-siC*dt)/(...)
+            const cc = mat.velocity(FreqIndex);
+            T.a[code] = (2 * mu - siC * dt) / (2 * mu + siC * dt);
             T.b[code] = (dt / mu) / (1 + (siC * dt) / (2 * mu));
+            T.c[code] = (2 * ep - si * dt) / (2 * ep + si * dt);
+            T.d[code] = (dt / ep) / (1 + (si * dt) / (2 * ep));
             FDTD_slave.initiateMurConstants(cc, dx, dy, dz, dt);
             T.cmaX[code] = FDTD_slave.cmaX; T.cmbX[code] = FDTD_slave.cmbX;
             T.cmaY[code] = FDTD_slave.cmaY; T.cmbY[code] = FDTD_slave.cmbY;
             T.cmaZ[code] = FDTD_slave.cmaZ; T.cmbZ[code] = FDTD_slave.cmbZ;
-            if (mat.isConductor()) { T.conductor[code] = 1; T.anyConductor = true; }
+            const name = mat.name().toLowerCase();
+            if (name.startsWith("source") || name.startsWith("copper")) T.wire[code] = 1;
         }
         return T;
     }
@@ -585,10 +673,17 @@ export class FDTD_slave {
         Campos.data(x, y, z, value);
     }
 
+    /** Phoenix: Mur1aOrdem() on the flat arrays; `pulo` is the offset of the point 2 steps inside. */
+    static mur(Campos, CamposAnterior, CamposAntAnterior, p, pulo, cA, cB) {
+        Campos[p] = -CamposAntAnterior[p + pulo]
+            + cA * (Campos[p + pulo] + CamposAntAnterior[p])
+            + cB * (CamposAnterior[p] + CamposAnterior[p + pulo]);
+    }
+
     /**
-     * 2nd order terms of Mur's condition.  In the 2007 code the body was
-     * commented out ("ESTA COM ERRO NOS FIELD..."), so choosing
-     * "Mur 2nd Order" behaves exactly like 1st order.  Kept that way.
+     * 2nd order terms of Mur's condition.  The body was still commented out
+     * in 2010 ("ESTA COM ERRO NOS FIELD..."), so "Mur 2nd Order" behaves
+     * exactly like 1st order.  Kept that way.
      */
     static Mur2aOrdem(x, y, z, coordenada, valor, Campos, CamposAnterior, CamposAntAnterior, const2aOrdem, TamX, TamY, TamZ) {
     }

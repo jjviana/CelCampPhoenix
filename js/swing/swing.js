@@ -122,6 +122,19 @@ export class JCheckBox extends JComponent {
     setEnabled(b) { super.setEnabled(b); if (this.input) this.input.disabled = !b; }
 }
 
+export class JComboBox extends JComponent {
+    constructor(items, selected) {
+        const e = el('select', 'jcombo');
+        if (e) for (const it of items) { const o = document.createElement('option'); o.value = o.textContent = String(it); e.appendChild(o); }
+        super(e);
+        this.items = items.map(String);
+        this.value = selected !== undefined ? String(selected) : this.items[0];
+        if (e) e.value = this.value;
+    }
+    setSelectedItem(v) { this.value = String(v); if (this.el) this.el.value = this.value; }
+    getSelectedItem() { return this.el ? this.el.value : this.value; }
+}
+
 export class JSpinner extends JComponent {
     constructor(value, min, max) {
         const e = el('input', 'jspinner');

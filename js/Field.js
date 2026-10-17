@@ -108,7 +108,8 @@ export class Field {
         this.dataArray.fill(v);
     }
 
-    InitiateField(n, m, l, t, v) {
+    /** Phoenix: `ArrayType` (default Float64Array) lets the EH slaves keep their fields in Float32Array. */
+    InitiateField(n, m, l, t, v, ArrayType) {
         if (n === undefined) { n = 1; m = 1; l = 1; }
         if (t === undefined) t = "Default";
         if (v === undefined) v = 0.0;
@@ -117,7 +118,7 @@ export class Field {
         if (this.sizeData > 2147483647) throw new Error("OutOfMemoryError");
         this.sizeData = this.sizeData * l;
         if (this.sizeData > 2147483647) throw new Error("OutOfMemoryError");
-        this.dataArray = new Float64Array(this.sizeData);
+        this.dataArray = new (ArrayType || Float64Array)(this.sizeData);
         this.n0 = n; this.n1 = m; this.n2 = l;
         this.w0 = m * l; this.w1 = l; this.w2 = 1; this.w3 = 0; this.Type = t;
 
@@ -147,68 +148,72 @@ export class Field {
         }
         return this.EscreveArquivo2D(PATH, n);
     }
-
-    SaveT(PATH, SimulName, n, T, SimulDataT) {
+    SaveT(PATH, SimulName, n, T) {
         if (n === 0) {
             const Name = SimulName;
             T.save3dmT(Name, PATH);
             T.saveDatT(Name, PATH);
             T.save3dT(Name, PATH);
         }
-        return this.EscreveArquivo2DT(PATH, n, SimulDataT);
+        return this.EscreveArquivo2DT(PATH, n);
     }
-
-    SaveMinAvMaxT(PATH, SimulName, n, T, NMAX, skip, Tenv, SimulDataT) {
-        return this.EscreveMinAvMaxT(PATH, n, NMAX, Tenv, skip, SimulDataT);
+    SaveMinAvMaxT(PATH, SimulName, n, T, NMAX, Tenv) {
+        return this.EscreveMinAvMaxT(PATH, n, NMAX, Tenv, T ? T.skip : 1);
     }
-
     EscreveArquivo2D(PATH, n) {
         const E = this.EscreveE(PATH, n);
-        const H = this.EscreveH(PATH, n);
-        return { E: E, H: H };
+        this.EscreveH(PATH, n, false);
+        return { E: E };
     }
-
-    EscreveArquivo2DT(PATH, n, SimulDataT) {
-        return this.EscreveT(PATH, n, SimulDataT);
+    EscreveArquivo2DT(PATH, n) {
+        return this.EscreveT(PATH, n);
     }
 
     /**
-     * |E| at the centre of every cube (i,j,k all odd).
+     * |E| at the centre of every cube (i,j,k all odd of the expanded grid).
+     * "Teste 7: 27 de Maio de 2010 - Fazendo a media dos pontos.
+     *  Referencia: Atef Elsherbeni - FDTD with Matlab, pagina 126 Fig.4.13a":
+     * every component is the average of the 4 edges of the cube parallel to it.
      *
-     * Phoenix note: in the 2007 code EscreveE averaged the two points at
-     * (i+-1,j,k), (i,j+-1,k), (i,j,k+-1) - but by the parity rules of
-     * Field.isHx()/isHy()/isHz() those points hold the *magnetic* field, and
-     * EscreveH averaged the four edge points that hold the *electric*
-     * field. The two formulas are swapped here so that EN files contain E
-     * and HN files contain H.
+     * Phoenix: split out of EscreveE() so the slaves can send only these
+     * values (one per cube) to the master instead of the whole grid.
      */
-    EscreveE(PATH, n) {
-        const nomeArqE = "" + PATH + "/results/E" + "N" + n;
+    EAtCubeCentres() {
         const SX = this.tx, SY = this.ty, SZ = this.tz;
         const d = this.dataArray, w0 = this.w0, w1 = this.w1;
         const cx = (SX - 1) >> 1, cy = (SY - 1) >> 1, cz = (SZ - 1) >> 1;
-        const values = new Float64Array(cx * cy * cz);
+        const F = new Field(cx, cy, cz, "|E|");
+        const values = F.dataArray;
         let count = 0;
         for (let i = 1; i < SX; i += 2) {
             for (let j = 1; j < SY; j += 2) {
                 for (let k = 1; k < SZ; k += 2) {
                     const p = i * w0 + j * w1 + k;
-                    // Ex lives at (odd, even, even): the 4 edges parallel to x
-                    const Ex = (d[p + w1 + 1] + d[p + w1 - 1] + d[p - w1 + 1] + d[p - w1 - 1]) / 4;
-                    // Ey lives at (even, odd, even)
-                    const Ey = (d[p + w0 + 1] + d[p + w0 - 1] + d[p - w0 + 1] + d[p - w0 - 1]) / 4;
-                    // Ez lives at (even, even, odd)
-                    const Ez = (d[p + w0 + w1] + d[p + w0 - w1] + d[p - w0 + w1] + d[p - w0 - w1]) / 4;
+                    const Ex = (d[p - w1 - 1] + d[p + w1 - 1] + d[p - w1 + 1] + d[p + w1 + 1]) / 4; //1,0,0
+                    const Ey = (d[p - w0 - 1] + d[p - w0 + 1] + d[p + w0 - 1] + d[p + w0 + 1]) / 4; //0,1,0
+                    const Ez = (d[p - w0 - w1] + d[p - w0 + w1] + d[p + w0 - w1] + d[p + w0 + w1]) / 4; //0,0,1
                     values[count++] = Math.sqrt(Ex * Ex + Ey * Ey + Ez * Ez);
                 }
             }
         }
-        ResultsDisk.writeMatrix(nomeArqE, values, cx, cy * cz);
-        return values;
+        return F;
     }
 
-    /** |H| at the centre of every cube (see the note in EscreveE). */
-    EscreveH(PATH, n) {
+    /** Writes results/EN<n>: one line per x, the cubes of that plane (y outer, z fastest). */
+    EscreveE(PATH, n) {
+        const nomeArqE = "" + PATH + "/results/E" + "N" + n;
+        // Phoenix: the master already holds |E| per cube (see EAtCubeCentres)
+        const F = this.Type === "|E|" ? this : this.EAtCubeCentres();
+        ResultsDisk.writeMatrix(nomeArqE, F.dataArray, F.tx, F.ty * F.tz);
+        return F.dataArray;
+    }
+
+    /**
+     * |H| at the centre of every cube, from one face of each component
+     * (2010).  CalculateEHParallel never asked for it (writeH = false).
+     */
+    EscreveH(PATH, n, writeH) {
+        if (!writeH) return null;
         const nomeArqH = "" + PATH + "/results/H" + "N" + n;
         const SX = this.tx, SY = this.ty, SZ = this.tz;
         const d = this.dataArray, w0 = this.w0, w1 = this.w1;
@@ -219,10 +224,9 @@ export class Field {
             for (let j = 1; j < SY; j += 2) {
                 for (let k = 1; k < SZ; k += 2) {
                     const p = i * w0 + j * w1 + k;
-                    // Hx lives at (even, odd, odd): the 2 faces normal to x
-                    const Hx = (d[p + w0] + d[p - w0]) / 2;
-                    const Hy = (d[p + w1] + d[p - w1]) / 2;
-                    const Hz = (d[p + 1] + d[p - 1]) / 2;
+                    const Hx = d[p - w0]; //0,1,1
+                    const Hy = d[p - w1]; //1,0,1
+                    const Hz = d[p - 1];  //1,1,0
                     values[count++] = Math.sqrt(Hx * Hx + Hy * Hy + Hz * Hz);
                 }
             }
@@ -230,24 +234,20 @@ export class Field {
         ResultsDisk.writeMatrix(nomeArqH, values, cx, cy * cz);
         return values;
     }
-
-    EscreveT(PATH, n, SimulDataT) {
-        const nomeArqT = "" + PATH + "/results/T_" + SimulDataT + "_N" + n;
+    EscreveT(PATH, n) {
+        const nomeArqT = "" + PATH + "/results/T" + "N" + n;
         console.log("** Field::Save:: Gravando arquivo = " + nomeArqT);
         const values = new Float64Array(this.dataArray);
         ResultsDisk.writeMatrix(nomeArqT, values, this.tx, this.ty * this.tz);
         return values;
     }
-
-    EscreveMinAvMaxT(PATH, n, NMAX, Tenv, skip, SimulDataT) {
-        const nomeArqT = "" + PATH + "/results/TMinAvMax_" + SimulDataT + ".txt";
+    EscreveMinAvMaxT(PATH, n, NMAX, Tenv, skip) {
+        const nomeArqT = "" + PATH + "/results/TMinAvMax.txt";
         if (n === 0) {
-            console.log("** Field::Save:: Gravando arquivo MinAvMax = " + nomeArqT);
+            console.log("** Field::Save:: Gravando arquivo = " + nomeArqT);
             ResultsDisk.open(nomeArqT);
             ResultsDisk.append(nomeArqT, NMAX + "\n");
-            ResultsDisk.append(nomeArqT, skip + "\n");
         }
-
         const d = this.dataArray;
         let valueMax = 0;
         let valueAvg = 0;
@@ -266,12 +266,10 @@ export class Field {
         }
         valueAvg = valueAvg / ncubes;
         ResultsDisk.append(nomeArqT, doubleToString(valueMin) + " " + doubleToString(valueAvg) + " " + doubleToString(valueMax) + " \n");
-
-        if (n >= NMAX - skip) // Phoenix: 2007 closed only when n==NMAX-1
+        if (n >= NMAX - (skip || 1)) // Phoenix: 2010 closed only when n==NMAX-1
             ResultsDisk.close(nomeArqT);
         return { min: valueMin, avg: valueAvg, max: valueMax };
     }
-
     static Refresh(...args) {
         if (args.length === 1) {
             // 2007 swapped references, which aliased A[0] and A[1]; copy instead.

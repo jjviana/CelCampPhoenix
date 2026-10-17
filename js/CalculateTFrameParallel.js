@@ -1,13 +1,15 @@
 /*
  * CalculateTFrameParallel.js
  *
- * Created on 29 de Marco de 2007, 13:57   (CalculateTFrameParallel.java)
+ * Created on 29 de Marco de 2007, 13:57   (CalculateTFrameParallel.java, version of 2009)
  * Ported to JavaScript in 2026 (CelCamp Phoenix).
  *
  * @author  juliano
  *
  * The window and master side of the temperature calculation
- * (slaves: FDTD_T_slave).
+ * (slaves: FDTD_T_slave).  Since 2008 it receives the E^2 of the
+ * electromagnetic calculation ("SAR") and the thermal parameters of the
+ * .3dm file (dtt, NT, reduzNT, Tenv, Tblood, Ttissues, hc).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -30,7 +32,7 @@ export class CalculateTFrameParallel extends JFrame {
     static NPROC = 1; //3
 
     /** Creates new form CalculateTFrameParallel */
-    constructor(GridSizeX, GridSizeY, GridSizeZ, SName, s, m, mat, Nmat, path) {
+    constructor(GridSizeX, GridSizeY, GridSizeZ, SName, s, sar, m, mat, Nmat, path, dTT, NT, ReduzNT, Temps, hc) {
         super("Calculate T (Parallel)");
         /** MINHAS VARIAVEIS **/
         this.errorJPVM = false;
@@ -39,7 +41,6 @@ export class CalculateTFrameParallel extends JFrame {
         this.gridSizeZ = GridSizeZ;
         this.dx = 0; this.dy = 0; this.dz = 0;
         this.SimulName = SName || "Default";
-        this.SimulDataT = "Default";
         this.max = 0;
         this.min = 0;
         this.dtT = 0.0;
@@ -58,11 +59,10 @@ export class CalculateTFrameParallel extends JFrame {
         this.Tenv = 25; //oC
         this.Tblood = 36.8; //oC
         this.Ttissues = 36.8; //oC
-        this.RadiationEnabled = true;
-        this.ConvectionEnabled = true;
-        this.EvaporationEnabled = true;
+        this.SAR = sar;
+        this.SARName = null;       // Phoenix: shown in the window
         this.Tinit = null;
-        this.TinitLoaded = false;
+        this.TinitWasRead = false;
         this.num_data = 0;
         this.jpvm = null;
         this.tids = null;
@@ -73,6 +73,29 @@ export class CalculateTFrameParallel extends JFrame {
         this.setModel(m, Nmat);
         this.setMaterials(mat);
         this.setJPVM();
+        this.max = NT;
+        this.NField.setText("" + NT);
+        this.dtT = dTT;
+        this.DTTField.setText("" + doubleToString(this.dtT));
+        this.reduzNT = ReduzNT;
+        this.SkipText.setText("" + this.reduzNT);
+        this.Tenv = Temps[0];
+        this.TenvText.setText("" + doubleToString(this.Tenv));
+        this.Tblood = Temps[1];
+        this.TbloodText.setText("" + doubleToString(this.Tblood));
+        this.Ttissues = Temps[2];
+        this.TtissuesText.setText("" + doubleToString(this.Ttissues));
+        this.Henv = hc;
+        this.HenvText.setText("" + doubleToString(this.Henv));
+        this.setSARName(null);
+    }
+
+    /** Phoenix: shows which E^2 ("SAR") file feeds the calculation. */
+    setSARName(name) {
+        this.SARName = name;
+        let max = 0;
+        for (const v of this.SAR.getData()) if (v > max) max = v;
+        this.SARLabel.setText(name ? "E² = " + name + "  (max " + max.toPrecision(3) + " V²/m²)" : "E² = 0 (no SAR file: Calculate → SAR to Temperature)");
     }
 
     /** This method is called from within the constructor to initialize the form. */
@@ -86,11 +109,9 @@ export class CalculateTFrameParallel extends JFrame {
         this.TbloodText = new JTextField("36.8", 5);
         this.TtissuesText = new JTextField("36.8", 5);
         this.LoadTinitFileButton = new JButton("Tinit", () => this.LoadTinitFileButtonMouseClicked());
-        this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a T_..._N file of a previous run).");
+        this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a TN file of a previous run).");
         this.TinitLabel = new JLabel("", "jnote");
-        this.RadiationCheckBox = new JCheckBox("Radiation", true);
-        this.ConvectionCheckBox = new JCheckBox("Convection", true);
-        this.EvaporationCheckBox = new JCheckBox("Evaporation", true);
+        this.SARLabel = new JLabel("", "jnote");
         this.SkipText = new JTextField("1000", 6);
         this.WriteFilesCheckBox = new JCheckBox("Write result files to results/", true);
         this.MemLabel = new JLabel("", "jnote");
@@ -114,7 +135,7 @@ export class CalculateTFrameParallel extends JFrame {
                 row("Tenv:  ", this.TenvText, "oC", "   hc :", this.HenvText, "W/m2.K"),
                 row("Tblood:  ", this.TbloodText, "oC", "   Ttissues:  ", this.TtissuesText, "oC", this.LoadTinitFileButton),
                 row(this.TinitLabel),
-                row(this.RadiationCheckBox, this.ConvectionCheckBox, this.EvaporationCheckBox)),
+                row(this.SARLabel)),
             panel(null,
                 row("Save each ", this.SkipText, " timesteps"),
                 row(this.WriteFilesCheckBox),
@@ -125,10 +146,10 @@ export class CalculateTFrameParallel extends JFrame {
     }
 
     async LoadTinitFileButtonMouseClicked() {
-        const file = await InputFileChooser.chooseText("Choose the initial temperature file (Tinit)", /tinit|^t_|\/t_/i);
+        const file = await InputFileChooser.chooseText("Choose the initial temperature file (Tinit)", /tinit|\/TN\d+$/i);
         if (file) {
-            this.TinitLoaded = this.ReadTinitFile(file.text, file.name);
-            if (this.TinitLoaded) {
+            this.TinitWasRead = this.ReadTinitFile(file.text, file.name);
+            if (this.TinitWasRead) {
                 const texto = "Leu o Arquivo de T inicial!";
                 console.log("*** CalculateTFrameParallel::LoadTinitFileButtonMouseClicked():: " + texto);
                 this.TinitLabel.setText("Tinit = " + file.name);
@@ -189,9 +210,6 @@ export class CalculateTFrameParallel extends JFrame {
             return;
         }
         console.log("*** Calculando o aumento de Temperatura (T) com Tenv=" + this.Tenv + "oC, Tblood = " + this.Tblood + "oC e Ttissues = " + this.Ttissues + "oC.");
-        this.RadiationEnabled = this.RadiationCheckBox.isSelected();
-        this.ConvectionEnabled = this.ConvectionCheckBox.isSelected();
-        this.EvaporationEnabled = this.EvaporationCheckBox.isSelected();
         /** Habilita e desabilita os botoes **/
         this.StartButton.setEnabled(false);
         this.CancelButton.setEnabled(true);
@@ -281,13 +299,10 @@ export class CalculateTFrameParallel extends JFrame {
     save3dmT(N3dm, PATH) {
         const M = this.M;
         const SX = M.x(), SY = M.y(), SZ = M.z();
-        const nome3dm = PATH + "/results/Simul" + N3dm + "_" + this.SimulDataT + ".3dm";
+        const nome3dm = PATH + "/results/Simul" + N3dm + ".3dm";
         let o = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n";
         o += "<!-- Created by Ana Rodrigues on September 28, 2005, 16:44 PM -->\n";
-        o += "<MaterialModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(this.dx) + "," + doubleToString(this.dy) + "," + doubleToString(this.dz) + "\" frequency=\"1.8GHz\" >";
-        o += "<sources>\n";
-        o += "<source type=\"puntual\" location=\"21,21,20\" maxValue=\"1.0\" unit=\"default\" hard=\"true\"></source>\n";
-        o += "</sources>\n";
+        o += "<MaterialModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(this.dx) + "," + doubleToString(this.dy) + "," + doubleToString(this.dz) + "\" >";
         o += "<materials>\n";
         for (let m = 0; m < this.NMat; m++) {
             const Mm = this.Mat[m];
@@ -298,7 +313,7 @@ export class CalculateTFrameParallel extends JFrame {
             o += "</material>\n";
         }
         o += "</materials>\n";
-        const nameDat = N3dm + "_" + this.SimulDataT + ".dat";
+        const nameDat = N3dm + ".dat";
         o += "<datafile name=\"" + "Simul" + nameDat + "\" id=\"0001\"></datafile>\n";
         o += "</MaterialModel>\n";
         ResultsDisk.writeText(nome3dm, o);
@@ -307,12 +322,13 @@ export class CalculateTFrameParallel extends JFrame {
     save3dT(N3df, PATH) {
         const M = this.M;
         const SX = M.x(), SY = M.y(), SZ = M.z();
-        const name3df = PATH + "/results/Simul" + N3df + "T_" + this.SimulDataT + ".3df";
+        const name3df = PATH + "/results/Simul" + N3df + "T.3df";
         let o = "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n";
         o += "<FieldModel name=\"" + this.SimulName + "\" dimention=\"" + SX + "," + SY + "," + SZ + "\" deltas=\"" + doubleToString(M.dx()) + "," + doubleToString(M.dy()) + "," + doubleToString(M.dz()) + "";
         o += "\" timesteps=\"" + (this.max - 1) + "\" units=\"(T [oC])\">\n";
-        o += "<data prefix=\"T_" + this.SimulDataT + "_N\" initialSufixCount=\"0\" sufixIncrement=\"" + this.skip + "\"></data>\n";
-        o += "<MaterialModel location =\"" + "Simul" + N3df + "_" + this.SimulDataT + ".3dm\"></MaterialModel>\n";
+        o += "<data prefix=\"TN\" initialSufixCount=\"0\" sufixIncrement=\"" + this.skip + "\"></data>\n";
+        const name3dm = N3df + ".3dm";
+        o += "<MaterialModel location =\"" + "Simul" + name3dm + "\"></MaterialModel>\n";
         o += "</FieldModel>\n";
         ResultsDisk.writeText(name3df, o);
     }
@@ -320,8 +336,7 @@ export class CalculateTFrameParallel extends JFrame {
     saveDatT(NArq, PATH) {
         const M = this.M;
         const SX = M.x(), SY = M.y(), SZ = M.z();
-        const nomeArq = PATH + "/results/Simul" + NArq + "_" + this.SimulDataT + ".dat";
-        console.log("** CalculateEHFrameParallel::saveDat()T:: X = " + SX + "  Y = " + SY + "  Z = " + SZ);
+        const nomeArq = PATH + "/results/Simul" + NArq + ".dat";
         const d = M.getData();
         const plane = SY * SZ;
         const parts = [];
@@ -374,10 +389,6 @@ export class CalculateTFrameParallel extends JFrame {
                 buf.pack(NPROC);
                 buf.pack(this.max);
                 buf.pack(this.skip);
-                PvmUtil.packBoolean(buf, this.RadiationEnabled);
-                PvmUtil.packBoolean(buf, this.ConvectionEnabled);
-                PvmUtil.packBoolean(buf, this.EvaporationEnabled);
-                PvmUtil.packBoolean(buf, this.TinitLoaded);
                 jpvm.pvm_send(buf, tids[i], 11);
             }
             //confirma o recebimento:
@@ -389,7 +400,6 @@ export class CalculateTFrameParallel extends JFrame {
             await PvmUtil.printMessageFromSlaves(jpvm, tids, 14, true);
 
             // 2) MANDA O PEDACO ESPECIFICO DO MODELO PARA SLAVES
-            this.SimulDataT = "" + doubleToString(this.Henv) + "_" + doubleToString(this.Tenv) + "_" + doubleToString(this.Tblood) + "_" + doubleToString(this.Ttissues);
             //manda o tamanho e os deltas:
             for (let i = 0; i < NPROC; i++) {
                 const [Xi, Xf] = CalculateTFrameParallel.partition(TX, NPROC, i);
@@ -405,6 +415,11 @@ export class CalculateTFrameParallel extends JFrame {
                 buf.pack(this.Tenv);
                 buf.pack(this.Tblood);
                 buf.pack(this.Ttissues);
+                if (this.TinitWasRead) {
+                    buf.pack(1.0);
+                } else {
+                    buf.pack(0.0);
+                }
                 buf.pack(Xi); // Phoenix
                 jpvm.pvm_send(buf, tids[i], 22);
             }
@@ -424,22 +439,33 @@ export class CalculateTFrameParallel extends JFrame {
             //confirma o recebimento do modelo:
             tagAtual++;
             await PvmUtil.printMessageFromSlaves(jpvm, tids, tagAtual, true);
+            //manda a SAR:
+            for (let i = 0; i < NPROC; i++) {
+                if (this.stopTThread)
+                    return;
+                buf = new jpvmBuffer();
+                const [Xi, Xf] = CalculateTFrameParallel.partition(TX, NPROC, i);
+                const tagSAR = 3301;
+                PvmUtil.sendPartialSAR(jpvm, tids[i], buf, Xi, Xf, ModelY, ModelZ, this.SAR, tagSAR);
+            }
+            //confirma o recebimento da SAR:
+            tagAtual++;
+            await PvmUtil.printMessageFromSlaves(jpvm, tids, tagAtual, true);
             //manda o valor inicial de T:
-            if (this.TinitLoaded) {
+            if (this.TinitWasRead) {
                 for (let i = 0; i < NPROC; i++) {
                     if (this.stopTThread)
                         return;
                     buf = new jpvmBuffer();
                     const [Xi, Xf] = CalculateTFrameParallel.partition(TX, NPROC, i);
-                    const tagTinit = 4444;
+                    const tagTinit = 3302;
                     console.log(" ** Mandando Valores Iniciais de T com X = " + Xi + " ate " + Xf);
-                    PvmUtil.sendPartialTinit(jpvm, tids[i], buf, Xi, Xf, ModelY, ModelZ, this.Tinit, tagTinit);
+                    PvmUtil.sendPartialSAR(jpvm, tids[i], buf, Xi, Xf, ModelY, ModelZ, this.Tinit, tagTinit);
                 }
-            } else
-                console.log(" ** Nao Mandou Tinit porque nao foi lido.");
-            //confirma o recebimento do Tinit:
-            const tagTexto = 34;
-            await PvmUtil.printMessageFromSlaves(jpvm, tids, tagTexto, true);
+                //confirma o recebimento do Tinit:
+                tagAtual++;
+                await PvmUtil.printMessageFromSlaves(jpvm, tids, tagAtual, true);
+            }
 
             // 3) MANDA OS MATERIAIS PARA SLAVES
             tagAtual++;
@@ -454,6 +480,7 @@ export class CalculateTFrameParallel extends JFrame {
             const vI = 0.0;
             const FieldAtualT = new Field(ModelX, ModelY, ModelZ, "EH", vI);
             const t0 = performance.now();
+            let T0 = null;
             for (let cont = 0; cont < this.max; cont++) {
                 let n = 0;
                 for (let i = 0; i < NPROC; i++) {
@@ -485,10 +512,14 @@ export class CalculateTFrameParallel extends JFrame {
                 }
                 //7) GRAVA RESPOSTA EM DISCO DEPOIS DE RECEBER DE TODOS OS SLAVES
                 if (n % this.skip === 0) {
-                    const values = FieldAtualT.SaveT(this.PATH, this.SimulName, n, this, this.SimulDataT);
-                    console.log("** CalculateTFrameParallel::CalculateTParallel():: GRAVOU ARQUIVO TEMPO = " + this.PATH + "/results/T_" + this.SimulDataT + "_N" + n);
-                    const mam = FieldAtualT.SaveMinAvMaxT(this.PATH, this.SimulName, n, this, this.max, this.skip, this.Tenv, this.SimulDataT);
-                    ResultsStore.addSnapshot(this.run, n, { T: values });
+                    const values = FieldAtualT.SaveT(this.PATH, this.SimulName, n, this);
+                    console.log("** CalculateTFrameParallel::CalculateTParallel():: GRAVOU ARQUIVO TEMPO = " + this.PATH + "/results/TN" + n);
+                    const mam = FieldAtualT.SaveMinAvMaxT(this.PATH, this.SimulName, n, this, this.max, this.Tenv);
+                    // Phoenix: the viewer also shows the rise since n = 0 (FDTD_T_slave's TRise)
+                    if (!T0) T0 = Float64Array.from(values);
+                    const rise = new Float32Array(values.length);
+                    for (let q = 0; q < rise.length; q++) rise[q] = values[q] - T0[q];
+                    ResultsStore.addSnapshot(this.run, n, { T: values, TRise: rise });
                     ResultsStore.addSeries(this.run, n, mam);
                 }
             }
@@ -527,10 +558,10 @@ export class CalculateTFrameParallel extends JFrame {
     newResultsRun() {
         const M = this.M;
         return ResultsStore.newRun({
-            kind: 'T', name: this.SimulName + " (T " + this.SimulDataT + ")", dims: [M.x(), M.y(), M.z()],
+            kind: 'T', name: this.SimulName + " (T" + (this.SARName ? ", SAR" : "") + ")", dims: [M.x(), M.y(), M.z()],
             deltas: [this.dx, this.dy, this.dz], codes: M.getData(),
             materials: this.Mat.map(m => ({ code: m.code(), name: m.name(), color: [m.color().getRed(), m.color().getGreen(), m.color().getBlue()] })),
-            info: { dtT: this.dtT, N: this.max, skip: this.skip, NPROC: CalculateTFrameParallel.NPROC, Tenv: this.Tenv, hc: this.Henv, Tblood: this.Tblood, Ttissues: this.Ttissues },
+            info: { dtT: this.dtT, N: this.max, skip: this.skip, NPROC: CalculateTFrameParallel.NPROC, Tenv: this.Tenv, hc: this.Henv, Tblood: this.Tblood, Ttissues: this.Ttissues, SAR: this.SARName },
         });
     }
 }

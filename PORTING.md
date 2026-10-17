@@ -1,86 +1,120 @@
 # Porting notes: CelCampJava v1.0 → JavaScript
 
-The goal was to keep the program recognisable from the inside, not only from the outside. Every Java class of the running program has a JavaScript file with the same name, and the same fields and methods. The master/slave conversation is message for message the 2007 one, with the same tags (11, 12, 14, 22, 33, 34, 4444, `197+n`, 900/902/904…). Comments and messages are kept, Portuguese included ("Fim da Simulacao!!").
+The port follows the **last known version** of CelCampJava: the backup of 27 May 2010, `CelCampJava_v1.0_backup_27052010_DIPOLO_VALIDADO`. The first port, in 2026, followed the April 2007 version. When the 2010 backup turned up, the port was moved to the 2010 behaviour. The 2007 behaviour is not kept as an option. Both originals are in [`legacy/`](legacy/README.md).
 
-This file lists what had to change, and the few places where the 2007 behaviour was deliberately changed. Each of those places is marked `Phoenix:` in the code.
+The goal was to keep the program recognisable from the inside, not only from the outside. Every Java class of the running program has a JavaScript file with the same name, and the same fields and methods. The master/slave conversation is message for message the 2010 one, with the same tags (11, 12, 14, 22, 33, 555/666, 3301, 3302, `197+n`, 900/902/904…). Comments and messages are kept, Portuguese included ("Fim da Simulacao!!").
+
+This file lists what had to change, and the places where the 2010 behaviour was deliberately changed. Each of those places is marked `Phoenix:` in the code.
+
+## What changed between 2007 and 2010
+
+Ana changed these things herself between 2007 and 2010. All of them are in the port:
+
+- **Sources** are given in the coordinates of the original cubes, with the field (`E`/`H`) and the axis they drive (`field="E" axis="z"`). `Source.SourceLocation()` turns them into the point of the expanded grid.
+- **Hard voltage source** (12/05/2010, after Elsherbeni & Demir 2009, §4.1.2): `E(n+1) = −E(n) − 2·Max·sin(2πf(n+½)dt)`, set on the 4 parallel edges of the source cube before the H update.
+- **Leapfrog order**: sources → H → E → Mur → zeroing of the wire. 2007 did E then H.
+- **The dipole wire**: E along the source axis is zeroed on the 4 edges of every cube of a material named `source…` or `copper…`. This replaced the 2007 "conductor" loop.
+- **The 2007 bugs of the EH slave**: the H coefficient `(2*-siC*dt)` became `(2*mu-siC*dt)`, materials are looked up by code, the master sends the frequency index, and the partial field goes out only every `nSkip` steps.
+- **The EN files**: |E| at each cube centre is the average of the 4 edges parallel to each component (27/05/2010, "Teste 7"). No HN file is written any more (`EscreveH(..., writeH = false)`).
+- **The .3dm file** carries the parameters of the calculations: `dt`, `N`, `reduzN` for EH; `dtt`, `NT`, `reduzNT`, `Tenv`, `Tblood`, `Ttissues`, `hc` for T.
+- **Temperature** (October 2008):
+  - The heat of the field comes from an E² file: `hem = σ·E²/2`, through **Calculate → SAR to Temperature**.
+  - The metabolism is `density·hm` [W/m³]. In 2007 it was `hm` [W/kg].
+  - Radiation, convection and evaporation are always on, and convection no longer depends on the emissivity.
+  - The initial temperature (`Tinit`) is copied once per cube.
+  - The files are `TN<n>` and `TMinAvMax.txt`.
+- **`NPROC = 1`**: the parallel exchange did not survive the new step order (see below), so the master fixed it at one slave.
 
 ## Platform mapping
 
-| Java (2007) | JavaScript (2026) |
+| Java (2010) | JavaScript (2026) |
 |---|---|
 | `jpvm.*` (Ferrari's JPVM over TCP) | `js/jpvm/`: same API (`pvm_spawn`, `pvm_send`, `pvm_recv(tid, tag)`, `jpvmBuffer.pack/upkint/upkstr…`, `jpvmTaskId`) over Web Workers and MessageChannels; every pair of tasks gets a direct channel, as JPVM had direct TCP connections |
 | blocking `pvm_recv` | `await jpvm.pvm_recv(...)`; `main()` of the slaves and `CalculateXParallel()` of the masters are `async` |
 | 4 threads exchanging borders in `FDTD_slave` | plain sends followed by awaited receives (`postMessage` never blocks) |
 | `new Thread(...).start()` for the calculation | an async task; the UI stays responsive because the slaves are workers |
-| `double[] data` (J. E. Moreira's `doubleArray3D`) | `Float64Array`, same index `i*w0 + j*w1 + k` |
+| `double[] data` (J. E. Moreira's `doubleArray3D`) | `Float64Array` (`Float32Array` for the three EH fields), same index `i*w0 + j*w1 + k` |
 | `byte[]` model | `Uint8Array` |
 | Java method overloading | one method that dispatches on its arguments (`Field.data(i,j,k)` reads, `data(i,j,k,v)` writes; `Model.setData`…) |
 | `Field.data` (array) vs `Field.data(i,j,k)` (method) | JS cannot have both: the array is `Field.dataArray` |
 | `PrintWriter` to `PATH/results/…` | `phoenix/ResultsDisk.js`: OPFS through a worker, same file names and text layout (`Double.toString` formatting is emulated by `JavaFormat.js`) |
-| `LOG:host:port.log`, `ERROR:host:port.log` | virtual log files kept by `jpvmDaemon`, shown in **JPVM → Console** |
+| `LOG:`, `ERROR:` and `DEBUG:host:port.log` | virtual log files kept by `jpvmDaemon`, shown in **JPVM → Console** |
 | JDOM `SAXBuilder` | `phoenix/MiniJDOM.js`: the five JDOM calls used |
 | `JFileChooser` | `InputFileChooser`: bundled models, `results/`, or local files |
 | `JOptionPane` (modal) | `swing/JFrame.js`: same names; the dialogs return Promises |
-| `System.exit(0)` when the X partition was impossible | an error dialog |
 
-## Bugs of 2007 fixed in the port
+## Bugs of 2010 fixed in the port
 
 Each fix keeps the shape of the original code. The comment next to it shows what was there before.
 
-**EH calculation (`FDTD_slave`)**
+**Parallel EH calculation (`FDTD_slave`, `CalculateEHFrameParallel`)**
 
-1. **H coefficient.** `a=(2*-siC*dt)/(2*mu+siC*dt)` evaluates to 0 for `siC=0`, so H lost its previous value at every step. It is now `(2*mu-siC*dt)/(2*mu+siC*dt)`, which is 1 for lossless media.
-2. **Material lookup by index.** The H loop and the conductor loop used `Mat[code]`, an index, where the material code was meant. `Mat[16]` is code 17, so for example Hypotalamus was zeroed as if it were copper, and copper itself was not. All lookups now go by code, as the E loop already did.
-3. **Frequency.** The slave fixed `FreqIndex = 1` (1.8 GHz) and ignored the frequency chosen in the window. It also crashed on single-frequency models such as the cubes. Java passes ints by value, so the index unpacked in `receiveMaterials` never got out of the method. The index chosen in the window is now used.
-4. **Source position across slices.** Sources were placed at global X `i + ModelX*slaveID`, but the slices overlap by one plane, so only slave 0 put them in the right place. The master now sends each slave its X offset.
-5. **Mur boundary at internal seams.** On the edges where a slice border meets a y/z boundary, the x‑Mur condition was applied at internal planes. It is now applied only at the real model border.
-6. **Order of operations at the left border.** The copy of the neighbour's border plane came after Mur points that read it, which then used the previous step's value. The copy now happens first. Since items 4–6, the result no longer depends on NPROC; `tests/physics.test.js` checks this for 1, 3 and 4 slaves.
-7. **Sources on a shared plane** were skipped in the right-border branch (`continue` before the source loop). They are now applied there too.
+1. **Border exchange order.** In 2010 the borders were exchanged at the start of the step, before the H update. E on the shared plane therefore used the H of the previous step. The shared plane was also updated twice: once in the E loop, where it read past the end of the slice, and again in the "Maximos se tiver vizinho" branch. The right slave copied the plane before its neighbour had applied Mur and zeroed the wire. Now:
+   - after H, the right slave sends its first planes to the left one;
+   - the left slave owns the shared plane and computes it once, with `BorderRight[1]`;
+   - after the zeroing of the wire, it sends the finished plane back.
+2. **Partition.** `Xi = (tamModelo-1)*i` only worked for `NPROC = 1`. The cubes are now spread evenly, at least 2 per slave.
+3. **Sources across slices.** `SourceLocation()` subtracted `ModelX*slaveID`, which ignores the overlap of the slices. For E/x and H/y, H/z it added 1 to the global x. Sources now use `globalLocation()` and the X offset sent by the master. The extra edges of a source next to the shared plane are driven in both slices: the right slave reads `E(n)` of the main edge from the plane its neighbour sent.
 
-**EH output (`Field`)**
+   With items 1–3, any NPROC gives **bit-for-bit** the result of `NPROC = 1`. `tests/physics.test.js` checks this for 1, 3 and 4 slaves, including sources on and next to the shared plane.
+4. **N + 1 twice.** The loader added 1 to `N`, and the EH window added 1 again. `N` is now the last step (steps 0…N).
+5. **Edges outside the model.** The zeroing of the wire also wrote at +2 cubes. Points outside the slice or the model are now skipped instead of throwing.
+6. **Saved model.** `Simul<name>.3dm` was written without `field`/`axis`/`dt`/`N`, so the 2010 loader could not open it again. They are written now.
 
-8. **E and H files swapped.** `EscreveE` averaged the two face points around each cube centre, which by `Field.isHx/Hy/Hz` hold H. `EscreveH` averaged the four edge points, which hold E. The formulas are swapped, so `EN<n>` files contain |E| and `HN<n>` files contain |H|.
+**Temperature (`FDTD_T_slave`, `CalculateTFrameParallel`)**
 
-**Temperature calculation (`FDTD_T_slave`)**
-
-9. **Parallelisation.** "implementar paralelizacao da temperatura" was still on the 2007 to‑do list: the T slaves never exchanged borders, so only `NPROC = 1` worked. They now exchange the neighbouring planes: material codes once, temperatures every step, through `PvmUtil.sendBorder`/`receiveBorder` like the EH slaves.
-10. **dtT stability limits.** The Wang/Bernardi checks changed `dtThour` after `const1` had already been computed from it, so they had no effect. They now apply. With dtT ≤ 1 s, which the window enforces, the head never reaches them.
-11. **Tinit.** At `n == 0` the 2007 code called `T[0].setData(Tinit.getData())` once per tissue cube, copying the whole array 10 million times on the head. It now copies each value once, which gives the same result.
-12. **Model border.** A tissue cube on the model border made the 2007 code throw `ArrayIndexOutOfBoundsException`. Such neighbours are now treated as air.
+7. **Parallelisation.** It was still on the to-do list: the T slaves never exchanged borders. They now exchange the neighbouring planes: material codes once, temperatures every step.
+8. **dtT stability limits.** The Wang/Bernardi checks changed `dtThour` after `const1` had been computed from it, so they had no effect. They now apply.
+9. **Model border.** A tissue cube on the model border threw `ArrayIndexOutOfBoundsException`. Such neighbours are now treated as air.
+10. **σ of the SAR** was `mat.si(1)`, which fails on single-frequency models. Index 0 is used there.
+11. **Temperature (T) menu.** It passed `reduzN`, the EH skip, as the T skip, and the last SAR file that had been read. It now passes `reduzNT` and no SAR. **SAR to Temperature** is the menu for that.
+12. **SAR → T after an EH run.** It did nothing after an EH run in the same session, and that EH run had expanded the model in place. The port expands a copy of the model, so the menu always works.
 
 **Main window and model**
 
-13. **Repeated EH runs.** `Calculate → EH` expanded the model in place, so a second EH run, or a T run after an EH run, used an already expanded model. A copy is expanded now.
-14. **`Model.redux()`** kept DX/DY/DZ while halving the number of cubes. The deltas are now doubled.
-15. **Linear sources** reached the slaves as point sources, because `PvmUtil.sendSources` packed only the base `Source` fields. Their axis, field and extent now travel too.
+13. **`Model.redux()`** kept DX/DY/DZ while halving the number of cubes. The deltas are now doubled. `dt` and the source cubes follow.
+14. **`TMinAvMax.txt`** was closed only when `NMAX-1` was a multiple of the skip.
 
 ## Behaviour kept on purpose
 
-- **CCA options.** The radios are "Mur 1st Order", "Mur 2nd Order" and "PML". `Mur2aOrdem()` was commented out in 2007, so 2nd order behaves as 1st order. PML was never written: the boundary stays at 0, a perfect conductor. Both are explained in tooltips.
-- **Convection.** It is multiplied by a factor derived from the emissivity `e`. In the head model only skin and hair (`e = 0.98`) lose heat to the air by convection; `NeckSkin` has `e = 0`. That is the 2007 model of the head and was kept.
-- **SAR → T.** The menu item stays disabled, and the SAR term of the bioheat equation is still 0, as in 2007.
-- **Message tags.** The `197 + n` tags collide with 900/902/904 when n is 703–707. This works only because both sides consume messages in the same order (FIFO per sender). That is still true, so the tags were kept.
-- **End of a run.** The frames hide themselves at the end, after "Fim da Simulacao!!". The port then opens the Field Viewer.
+- **The hard source.** Only the main edge is skipped by the E loop. The 3 other edges of the source cube are driven before H, then updated by the E loop like any point.
+- **The wire.** Only materials whose name starts with `source` or `copper` are zeroed. The `Coper` of the test cubes does not match, so it stays a lossy dielectric (σ = 5.8·10⁷). All sources must have the same axis ("Sources have different axis!!! Not impelemented!!!").
+- **CCA options.** `Mur2aOrdem()` is still commented out, so 2nd order behaves as 1st order. PML was never written. With PML the minimum faces are left alone, while the maximum faces still get Mur, because their branch has no `CCAtype` test.
+- **Plane wave sources** keep their `plane`, but drive one point, like a puntual source.
+- **No HN files.** `SimulXH.3df` is no longer written, because it would point to files that do not exist.
+- **Temperature files.** `TN<n>`, `TMinAvMax.txt` and `Simul<name>.3dm` carry no run name, so each run overwrites the previous one, as in 2010. The EH and T runs write the same `Simul<name>.3dm`.
+- **Radiation is always on.** The April 2007 steel cube validation ran with radiation off. The test reproduces it by giving the steel emissivity 0, and gets the same 0.46 % as before.
+- **`TRise`** is computed by the T slave but never sent. The viewer shows T − T(n=0) instead.
+- **`dt`** is limited to `1/(c·√(1/dx²+1/dy²+1/dz²))` with c = 3·10⁸, in the loader and in the EH window.
+- **Message tags.** The `197 + n` tags collide with 900/902/904 when n is 703–707. This works only because both sides consume messages in the same order (FIFO per sender), so the tags were kept.
 
 ## Additions
 
 They exist only in the web version and live in `js/phoenix/` and the **Tools** menu:
 
+- **Record E² over the last period**, in the EH window. The slaves sum |E|² at each cube centre over the last period (`1/(f·dt)` steps) and send `2·mean`, the E² of the peak. The master writes it to `results/<name>_E2_<f>Hz`, in the format read by **SAR to Temperature**. In 2010 that file was read, but nothing in CelCampJava wrote it. The viewer also shows E² and SAR = σE²/(2ρ), and the end dialog gives the peak SAR, without the air and the wire.
+- **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
 - **Results folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
-- **Field Viewer**: model, |E|, |H| and T slices, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
+- **Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
 - **JPVM → Console**: the old `jpvmConsole` `ps`, plus the slaves' log files.
-- **Tools → Redux Model** exposes `Model.redux()`, so the EH calculation of the head fits in a tab.
-- **NPROC.** The spinner of the windows works; it was cosmetic in 2007, where `static NPROC` decided. Any NPROC is accepted: the slices are as even as possible, and identical to 2007 when NPROC divides the model.
-- **Sources panel** in the EH window: the location and amplitude of the sources can be edited, in expanded-grid coordinates.
-- **Flow control.** A slave waits for an acknowledgement (tag 905) when the master is more than two partial fields behind. TCP gave JPVM this back-pressure for free; `postMessage` does not. The partial EH field is also sent only every `skip` steps, as the T slaves already did since 10/4/2007.
+- **Tools → Redux Model** exposes `Model.redux()`.
+- **NPROC** can be chosen again, in both windows.
+- **Sources panel** in the EH window: the cube, field, axis and amplitude of the sources can be edited.
+- **2007 model files** still open. The missing parameters get defaults. A 2007 source, given on a point of the expanded grid, becomes the component its parity names (`21,21,20` → Hz in cube 10,10,10).
+- **Speed and memory.**
+  - The EH fields are `Float32Array`.
+  - Only |E| at the cube centres goes to the master.
+  - The two older time levels are copied only on the layers that Mur reads. 2010 copied the whole grid twice per step.
+
+  The full head (82 million points) needs about 2.3 GB and runs at about 0.2 s per step with 3 workers (2000 steps in 7.4 min).
+- **Flow control.** A slave waits for an acknowledgement (tag 905) when the master is more than two partial fields behind. TCP gave JPVM this back-pressure for free; `postMessage` does not.
 
 ## Not ported
 
 - `CalculateEHFrame.java`, the sequential EH frame replaced by the parallel one on 07/03/2006.
-- `FDTDParallelProcess` / `FDTDParallelProcessLocal` ("FORA DE USO").
+- `FDTDParallelProcessLocal` ("FORA DE USO").
+- `LinearSource` and `DipoleSource` of 2007, deleted in 2010. A `linear` source in a model is reported as an error.
 - `Fantasy3D_v1.0`, the separate 3D model viewer.
 - `Versao_em_C_final`, the earlier C++/V version.
 - The MATLAB scripts.
 - The jpvm daemon/console internals (`jpvmDaemon.java` and friends): their role is played by `js/jpvm/jpvmDaemon.js`.
-
-The original program is kept in [`legacy/`](legacy/README.md), with the machine passwords of its `Readme.txt` removed.

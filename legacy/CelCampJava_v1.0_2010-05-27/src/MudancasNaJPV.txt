@@ -1,0 +1,6 @@
+Em 28/02/2007:
+- Profiler para descobrir os gargalos
+    args[1]="-agentpath:/home/juliano/netbeans-5.5/profiler1/lib/deployed/jdk15/linux/libprofilerinterface.so=/home/juliano/netbeans-5.5/profiler1/lib,5140";
+- Otimizacao da pre-compilacao do codigo:
+    args[2]="-server" no jpvmDaemon.java (na linha 678),
+		
