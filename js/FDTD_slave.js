@@ -244,6 +244,37 @@ export class FDTD_slave {
             }
             let stop = false;
 
+            /*
+             * Phoenix: the current of every E source, I = closed integral of H.dl
+             * around its cube (Ampere), in the plane across the source axis through
+             * the middle of the gap.  With the source voltage the master gets the
+             * power fed to the antenna (to scale the SAR to a given power).  Each
+             * H point is counted by one slave: the shared plane by the left one.
+             */
+            const loops = sources.map((src) => {
+                if (src.s.getField().toUpperCase() !== "E") return [];
+                const a = "xyz".indexOf(src.s.getAxis().toLowerCase());
+                const b = (a + 1) % 3, c = (a + 2) % 3;
+                const L = src.s.getLocation();
+                const d = [dx, dy, dz];
+                const terms = [];
+                const add = (pb, pc, w) => {
+                    const g = [0, 0, 0];
+                    g[a] = 2 * L[a] + 1; g[b] = pb; g[c] = pc;
+                    const li = g[0] - Xoffset;
+                    if (li < 0 || li >= X || (hasRight && li === X - 1)) return;
+                    if (g[1] < 0 || g[1] >= Y || g[2] < 0 || g[2] >= Z) return;
+                    terms.push([li * w0 + g[1] * w1 + g[2], w]);
+                };
+                for (const o of [0, 2]) {
+                    add(2 * L[b] + o, 2 * L[c] - 1, +d[b]);   // H_b along +b
+                    add(2 * L[b] + 3, 2 * L[c] + o, +d[c]);   // H_c along +c
+                    add(2 * L[b] + o, 2 * L[c] + 3, -d[b]);   // H_b back
+                    add(2 * L[b] - 1, 2 * L[c] + o, -d[c]);   // H_c back
+                }
+                return terms;
+            });
+
             let unacked = 0;
             let foundSourceLogged = false;
 
@@ -548,6 +579,13 @@ export class FDTD_slave {
                     sb.pack(n); sb.pack(wS); sb.pack(wU);
                     sb.pack(check ? 1 : 0);
                     sb.pack(numS); sb.pack(denS); sb.pack(numU); sb.pack(denU);
+                    // the part of each source current seen by this slave (H at n+1/2)
+                    sb.pack(loops.length);
+                    for (const terms of loops) {
+                        let I = 0;
+                        for (const [p, w] of terms) I += w * E0[p];
+                        sb.pack(I);
+                    }
                     jpvm.pvm_send(sb, parent, TAG_STEADY);
                     if (periodEnd) {
                         const verdict = await jpvm.pvm_recv(parent, TAG_VERDICT);

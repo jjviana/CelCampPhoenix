@@ -111,6 +111,12 @@ They exist only in the web version and live in `js/phoenix/` and the **View** an
   - **Steady** means: every `W` steps (600), the slaves send Σ|T − T(n−W)| and Σ|T − T(0)| over their tissue cubes (tags 99001/99002, like the EH). The run stops when the first is below the tolerance (0.01 % by default) of the second at 2 checks in a row. The maximum is its own field (36001 steps).
   - **Temperature (T)** does the same with **Run until steady state and save it as Tinit** (on by default). Unticked, it is the fixed-N run of 2010. The Tinit button still lets you choose another file.
   - On the Redux head, Tinit at 1 % takes 80 min of simulated time (78 s of calculation), but still drifts by up to 0.03 °C in the next 30 min, more than the rise caused by a 1 V dipole. At the default 0.01 % it takes 190 min (176 s) and the drift is 0.0003 °C.
+- **SAR table at the end of a steady EH run** (`js/phoenix/SARStats.js`). It gives the figures of the thesis (Fig. 6.3, 6.4): 1 voxel max, 1 g max, 1 g brain max (Brain and Hypotalamus) and 1 voxel brain max.
+  - **1 g** is the smallest cube, centred on a voxel, that holds 1 g of that tissue, with the SAR mass-averaged over it.
+  - **Comparison:** with Gandhi, Lazzi & Furse 1996 (835 MHz/600 mW and 1900 MHz/125 mW, the frequency nearest to the run), with error = (value − Gandhi)/Gandhi, next to the thesis's own values. The reference values are those of the thesis figures.
+  - **Values** are the ones calculated, not scaled.
+  - **Antenna power:** for information, the end dialog also gives the power fed to the antenna, V·∮H·dl around the source cube averaged over the last period, and the power absorbed by the tissues. A 7 cm dipole in air at 1.8 GHz shows an input resistance of 84 Ω.
+  - **Report file:** `results/<model>_SAR_<f>Hz.txt`.
 - **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
 - **View → Results Folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
 - **View → Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.

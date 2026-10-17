@@ -184,6 +184,12 @@ body.busy, body.busy * { cursor: progress !important; }
 .joption-type-0 { background: #b8412b; }
 .joption-type-2 { background: #c98a12; }
 .joption-message { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; }
+.sar-report { margin-top: 10px; white-space: normal; }
+.sar-table { border-collapse: collapse; margin: 6px 0; font: 12px var(--font); }
+.sar-table th, .sar-table td { border: 1px solid var(--panel-line); padding: 2px 8px; }
+.sar-table th { background: #eef1f4; font-weight: bold; }
+.sar-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sar-table td.sar-label { font-weight: bold; white-space: nowrap; }
 .joption-buttons { display: flex; justify-content: flex-end; gap: 8px; padding: 8px 14px 12px; }
 
 .jfilechooser { position: relative; width: min(640px, 100%); }
@@ -296,3 +302,4 @@ body.busy, body.busy * { cursor: progress !important; }
     .telainicial-icon { width: 160px; height: 160px; }
     .telainicial-status { max-width: none; }
 }
+.joption:has(.sar-table) { max-width: min(780px, 100%); }

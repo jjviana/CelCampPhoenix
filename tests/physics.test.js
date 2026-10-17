@@ -14,6 +14,7 @@ import { CalculateEHFrameParallel } from '../js/CalculateEHFrameParallel.js';
 import { CalculateTFrameParallel } from '../js/CalculateTFrameParallel.js';
 import { ResultsDisk } from '../js/phoenix/ResultsDisk.js';
 import { ResultsStore } from '../js/phoenix/ResultsStore.js';
+import { sarStatistics, GANDHI_1996, percentError } from '../js/phoenix/SARStats.js';
 
 const MODELS = new URL('../models/', import.meta.url);
 console.log = () => {};   // the ported code is as chatty as the original
@@ -340,6 +341,60 @@ test('Temperature (T) until the steady state writes results/<model>_Tinit, reuse
     assert.equal(ResultsStore.runs.length, n0 + 2, 'a new steady-state run, then the SAR run');
     assert.equal(JSON.parse(await ResultsDisk.readText('results/Air_SmallHead_Tinit.info')).tolerance, 0.0001);
     ResultsStore.runs.length = 0;
+});
+
+test('SAR statistics: 1 voxel, 1 g, brain; Gandhi 1996 reference rows', () => {
+    // 30 x 30 x 30 cubes of 1 mm, all tissue of 1000 kg/m3 (1 g = 10 x 10 x 10 cubes)
+    const n = 30, codes = new Uint8Array(n * n * n).fill(2), sar = new Float32Array(n * n * n).fill(1);
+    const density = new Float64Array(256); density[2] = 1000; density[3] = 1000;
+    const tissue = new Uint8Array(256); tissue[2] = tissue[3] = 1;
+    const brain = new Uint8Array(256); brain[3] = 1;
+    const at = (i, j, k) => (i * n + j) * n + k;
+    sar[at(15, 15, 15)] = 101;                       // one hot cube
+    for (let i = 0; i < 10; i++) for (let j = 0; j < 10; j++) for (let k = 0; k < 10; k++) codes[at(i, j, k)] = 3;   // a 1 g "brain" corner
+    codes[at(15, 15, 15)] = 2;
+    const st = sarStatistics({ sar, codes, dims: [n, n, n], deltas: [1e-3, 1e-3, 1e-3], density, tissue, brain });
+    assert.equal(st.voxel, 101);
+    assert.deepEqual(st.voxelAt, [15, 15, 15]);
+    assert.ok(Math.abs(st.g1 - 1.1) < 1e-9, '1 g = (999 + 101) / 1000, got ' + st.g1);
+    assert.equal(st.voxelBrain, 1);
+    assert.ok(Math.abs(st.g1Brain - 1) < 1e-9);
+    assert.ok(Math.abs(st.absorbed - (n * n * n - 1 + 101) * 1e-6) < 1e-12);
+    assert.equal(GANDHI_1996.pick(1.8e9).gandhi.voxel, 1.9);
+    assert.equal(GANDHI_1996.pick(900e6).gandhi.g1, 2.71);
+    assert.equal(percentError(4.485, 2.6).toFixed(1), '72.5');   // as in the thesis, Fig. 6.3
+});
+
+test('end of a steady EH run: SAR report against Gandhi 1996, antenna power', { timeout: 300000 }, async () => {
+    ResultsDisk.useMemory();
+    const t = await load('Air_SmallHead.3dm');
+    const f = await t.MenuDipoleActionPerformed(); f.suggest(); await f.place();
+    const pf = await runEH(t, { N: 8000, skip: 4000, steady: true }, 2);
+    const r = pf.sarReport;
+    assert.ok(r, 'report made');
+    for (const k of ['voxel', 'g1', 'g1Brain', 'voxelBrain']) assert.ok(Number.isFinite(r.stats[k]) && r.stats[k] >= 0, k);
+    assert.ok(r.stats.voxel >= r.stats.g1, '1 voxel >= 1 g');
+    assert.equal(r.stats.voxel, pf.run.info.peakSAR);
+    assert.equal(r.ref.label, '1900 MHz, 125 mW');
+    assert.ok(r.inputPower > 0 && r.stats.absorbed < r.inputPower, 'absorbed ' + r.stats.absorbed + ' < fed ' + r.inputPower);
+    const txt = await ResultsDisk.readText('results/Air_SmallHead_SAR_1.8E9Hz.txt');
+    assert.match(txt, /1 g brain max/);
+    assert.match(txt, /Gandhi/);
+    ResultsStore.runs.length = 0;
+});
+
+test('antenna power: V^2 law, input resistance of a dipole in air, any NPROC', { timeout: 300000 }, async () => {
+    ResultsDisk.useMemory();
+    const P = [];
+    for (const [V, NPROC] of [[1, 1], [2, 4]]) {
+        const t = await airBox(41);
+        await placeDipole(t, [20, 20, 20], 'z', 7, V);
+        P.push((await runEH(t, { N: 3000, skip: 3000, steady: true }, NPROC)).inputPower);
+    }
+    assert.ok(Math.abs(P[1] / P[0] - 4) < 1e-6, 'P(2 V) / P(1 V) = ' + P[1] / P[0]);
+    const R = 1 / (2 * P[0]);
+    process.stdout.write('# dipole of 7 cm in air at 1.8 GHz: input resistance ' + R.toFixed(1) + ' ohm\n');
+    assert.ok(R > 40 && R < 150, 'R = ' + R);
 });
 
 test('E2 of a dipole run heats the tissues in SAR -> T (Tinit calculated first), and nothing becomes NaN', { timeout: 300000 }, async () => {

@@ -36,6 +36,7 @@ import { JFrame, JOptionPane } from './swing/JFrame.js';
 import { hasDOM, el, JLabel, JTextField, JButton, JRadioButton, ButtonGroup, JSpinner, JProgressBar, JCheckBox, JComboBox, panel, row } from './swing/swing.js';
 import { ResultsDisk } from './phoenix/ResultsDisk.js';
 import { ResultsStore } from './phoenix/ResultsStore.js';
+import { sarStatistics, GANDHI_1996, QUANTITIES, percentError } from './phoenix/SARStats.js';
 
 const TAG_ACK = 905; // Phoenix: see FDTD_slave
 const TAG_E2 = 950;
@@ -493,6 +494,9 @@ export class CalculateEHFrameParallel extends JFrame {
             // Phoenix: STEADY - sums of |E|^2 of every step, and prefix sums of them
             const prefS = P ? new Float64Array(this.Nmax + 1) : null;
             const prefU = P ? new Float64Array(this.Nmax + 1) : null;
+            // Phoenix: power fed to the antenna, V(n+1/2).I(n+1/2) summed over each period
+            let powerSum = 0;
+            this.inputPower = null;
             let below = 0;      // consecutive steps with the difference below the tolerance
             let stop = false;
             let n = 0;
@@ -506,6 +510,7 @@ export class CalculateEHFrameParallel extends JFrame {
                     n = message.buffer.upkint();
                 }
                 let delta = null, cubeDelta = null;
+                const I = new Float64Array(this.S.length);
                 if (P) {
                     let wS = 0, wU = 0, check = false, numS = 0, denS = 0, numU = 0, denU = 0;
                     for (let i = 0; i < NPROC; i++) {
@@ -514,7 +519,18 @@ export class CalculateEHFrameParallel extends JFrame {
                         wS += b.upkdouble(); wU += b.upkdouble();
                         check = b.upkint() === 1;
                         numS += b.upkdouble(); denS += b.upkdouble(); numU += b.upkdouble(); denU += b.upkdouble();
+                        const ns = b.upkint();
+                        for (let s = 0; s < ns; s++) I[s] = (i === 0 ? 0 : I[s]) + b.upkdouble();
                     }
+                    // the voltage of each E source: the hard source keeps E = -Max.sin(wt) in its gap
+                    for (let s = 0; s < this.S.length; s++) {
+                        const src = this.S[s];
+                        if (src.getField().toUpperCase() !== "E") continue;
+                        const da = [this.dx, this.dy, this.dz]["xyz".indexOf(src.getAxis().toLowerCase())];
+                        const V = -src.getMaxValue() * da * Math.sin(2 * Math.PI * src.getF()[this.FIndex] * (n + 0.5) * this.dt);
+                        powerSum += V * I[s];
+                    }
+                    if ((cont + 1) % P === 0) { this.inputPower = Math.abs(powerSum / P); powerSum = 0; }
                     prefS[cont + 1] = prefS[cont] + wS;
                     prefU[cont + 1] = prefU[cont] + wU;
                     // the last period against the one before (SAR-weighted when there are tissues)
@@ -613,7 +629,12 @@ export class CalculateEHFrameParallel extends JFrame {
                 texto += "\n\nSteady state at n = " + st.n + ": the last periods differ by " + this.pct(st.log[st.log.length - 1].delta) +
                     " (cube by cube " + this.pct(st.cube[st.cube.length - 1].delta) + "), below " + this.pct(st.tol) + " for 2 periods." +
                     "\nE² of the last " + st.P + " steps: " + this.E2file +
-                    "\nPeak SAR = " + this.run.info.peakSAR.toPrecision(3) + " W/kg (" + this.run.info.peakSARmaterial + ")";
+                    "\nPeak SAR = " + this.run.info.peakSAR.toPrecision(3) + " W/kg (" + this.run.info.peakSARmaterial + ") for the source as given";
+            }
+            if (st && st.reached && this.sarReport) {
+                const node = this.sarReportNode();
+                if (node) { const box = el('div'); box.append(el('div', null, texto), node); texto = box; }
+                else texto += "\n\n" + this.sarReportText();
             }
             await JOptionPane.showMessageDialog(this, texto, "End of Simulation", JOptionPane.INFORMATION_MESSAGE);
             if (st && !st.reached) {
@@ -678,6 +699,62 @@ export class CalculateEHFrameParallel extends JFrame {
         }
         this.run.extra = { E2: Float32Array.from(e2), SAR: sar };
         Object.assign(this.run.info, { E2file: this.E2file, E2steps: steps, peakSAR: peak, peakSARmaterial: names[peakCode] || "-" });
+
+        // Phoenix: the SAR figures of the thesis (Fig. 6.3, 6.4), normalized to Gandhi's power
+        const tissue = new Uint8Array(256), brain = new Uint8Array(256);
+        for (const m of this.Mat) {
+            if (!dens[m.code()]) continue;
+            tissue[m.code()] = 1;
+            if (/^(brain|hypotalamus|hypothalamus|c[eé]rebro)/i.test(m.name())) brain[m.code()] = 1;
+        }
+        const stats = sarStatistics({ sar, codes, dims: [E2.tx, E2.ty, E2.tz], deltas: [this.dx, this.dy, this.dz], density: dens, tissue, brain });
+        const ref = GANDHI_1996.pick(this.f);
+        // the values as calculated, not scaled to Gandhi's power (the power is reported for information)
+        this.sarReport = { stats, ref, inputPower: this.inputPower, scale: null, brainNames: this.Mat.filter(m => brain[m.code()]).map(m => m.name()) };
+        this.run.info.sarReport = this.sarReport;
+        const was2 = ResultsDisk.enabled;
+        ResultsDisk.enabled = true;
+        ResultsDisk.writeText(this.PATH + "/results/" + this.SimulName + "_SAR_" + doubleToString(this.f) + "Hz.txt", this.sarReportText());
+        ResultsDisk.enabled = was2;
+    }
+
+    /** Phoenix: the SAR comparison as text (the report file, and the dialog without a DOM). */
+    sarReportText() {
+        const r = this.sarReport, k = 1, f = (x) => x.toPrecision(3);
+        let t = "SAR of " + this.SimulName + " at " + doubleToString(this.f) + " Hz, compared with " + GANDHI_1996.citation + " (" + r.ref.label + ")\n";
+        t += "Power fed to the antenna: " + (r.inputPower > 0 ? f(1000 * r.inputPower) + " mW" : "not measured") + "; absorbed by the tissues: " + f(1000 * r.stats.absorbed) + " mW\n\n";
+        t += ["SAR (W/kg)", "this run", "Gandhi", "error", r.ref.thesisLabel, "error"].join("\t") + "\n";
+        for (const [key, label] of QUANTITIES) {
+            const has = r.stats[key + "At"] !== null, ours = r.stats[key] * k, g = r.ref.gandhi[key], th = r.ref.thesis[key];
+            t += [label, has ? f(ours) : "-", g, has ? percentError(ours, g).toFixed(1) + " %" : "-", th, percentError(th, g).toFixed(1) + " %"].join("\t") + "\n";
+        }
+        t += "\nBrain = " + (r.brainNames.join(", ") || "none") + ". 1 g = the smallest cube centred on a voxel holding 1 g of that tissue, mass-averaged; error = (value - Gandhi) / Gandhi.\n";
+        return t;
+    }
+
+    /** Phoenix: the SAR comparison as a table, for the end dialog. */
+    sarReportNode() {
+        if (!hasDOM) return null;
+        const r = this.sarReport, k = 1, f = (x) => x.toPrecision(3);
+        const box = el('div', 'sar-report');
+        box.appendChild(el('div', 'jnote', "Compared with " + r.ref.label + ". Power fed to the antenna: " + (r.inputPower > 0 ? f(1000 * r.inputPower) + " mW" : "not measured") +
+            "; absorbed by the tissues: " + f(1000 * r.stats.absorbed) + " mW."));
+        const table = el('table', 'sar-table');
+        const head = el('tr');
+        for (const h of ["SAR (W/kg)", "this run", "Gandhi 1996", "error", r.ref.thesisLabel, "error"]) head.appendChild(el('th', null, h));
+        table.appendChild(head);
+        for (const [key, label] of QUANTITIES) {
+            // (no value when the model has no cube - or not 1 g - of that tissue)
+            const has = r.stats[key + "At"] !== null, ours = r.stats[key] * k, g = r.ref.gandhi[key], th = r.ref.thesis[key];
+            const tr = el('tr');
+            const e1 = percentError(ours, g), e2 = percentError(th, g);
+            for (const [v, cls] of [[label, 'sar-label'], [has ? f(ours) : "—", 'num'], [String(g), 'num'], [has ? (e1 > 0 ? "+" : "") + e1.toFixed(1) + " %" : "—", 'num'], [String(th), 'num'], [(e2 > 0 ? "+" : "") + e2.toFixed(1) + " %", 'num']])
+                tr.appendChild(el('td', cls, v));
+            table.appendChild(tr);
+        }
+        box.appendChild(table);
+        box.appendChild(el('div', 'jnote', "Brain = " + (r.brainNames.join(", ") || "none") + ". 1 g: the smallest cube centred on a voxel that holds 1 g of that tissue, mass-averaged. Error = (value − Gandhi) / Gandhi. " + GANDHI_1996.citation + "."));
+        return box;
     }
 
     /** Phoenix: registers this calculation in the viewer's ResultsStore. */

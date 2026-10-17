@@ -94,7 +94,9 @@ Do this <i>before</i> placing the antenna: a one-cube wire placed earlier can fa
   <li>Leave <b>Run until steady state</b> ticked: N (8000) is only the maximum, the tolerance is 1&nbsp;%.</li>
   <li>Press <b>Start</b>. The status line shows the difference between the last two periods at every step; the run stops by itself
   once that stays below the tolerance for 2 periods.</li>
-  <li>The end dialog gives the step where it stopped, the E&sup2; file <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> and the peak SAR.</li>
+  <li>The end dialog gives the step where it stopped, the E&sup2; file <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> and the SAR table:
+  1 voxel max, 1 g max, 1 g brain max and 1 voxel brain max, compared with Gandhi et al. 1996 (835 MHz/600 mW or 1900 MHz/125 mW, the nearest frequency),
+  with the percent error and the values of the thesis. The table is also saved as <code>results/&lt;model&gt;_SAR_&lt;f&gt;Hz.txt</code>.</li>
   <li>If N runs out first you get a warning and no E&sup2; file: increase N and run again.</li></ul></li>
 <li><b>SAR.</b> There is no separate SAR menu: SAR = &sigma;E&sup2;/(2&rho;) is computed from that E&sup2; file.
 To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b>Field Viewer</b>, which opens at the end of the EH run

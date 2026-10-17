@@ -224,7 +224,8 @@ export class JOptionPane {
             if (icon) { glyph.className = 'joption-glyph'; const im = el('img'); im.src = icon; im.alt = ''; glyph.appendChild(im); }
             else glyph.textContent = ({ 0: '!', 1: 'i', 2: '!', 3: '?' })[type] || '';
             const msg = el('div', 'joption-message');
-            msg.textContent = String(message);
+            if (message instanceof Node) msg.appendChild(message);   // Phoenix: a table in the dialog
+            else msg.textContent = String(message);
             body.append(glyph, msg);
             const btns = el('div', 'joption-buttons');
             const done = (i) => { veil.remove(); document.removeEventListener('keydown', onKey); resolve(i); };
