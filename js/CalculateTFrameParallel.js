@@ -132,7 +132,7 @@ export class CalculateTFrameParallel extends JFrame {
         this.TinitLabel = new JLabel("", "jnote");
         this.SteadyStateCheckBox = new JCheckBox("Run until steady state and save it as Tinit", true);
         this.SteadyStateCheckBox.setToolTipText("Without SAR: stops when T changes by less than the tolerance over a window, compared with its change since the start, at 2 checks in a row; then writes results/<model>_Tinit, used by SAR to Temperature.");
-        this.ToleranceText = new JTextField("1", 4);
+        this.ToleranceText = new JTextField("0.01", 4);
         this.WindowText = new JTextField("600", 5);
         this.TinitMaxText = new JTextField("36001", 7);
         this.TinitTitle = new JLabel("Tinit = thermal steady state without SAR (calculated first when not saved yet):", "jnote");

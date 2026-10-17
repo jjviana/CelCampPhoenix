@@ -55,7 +55,7 @@ If N comes first there is a warning and no E&sup2; file.</li>
 <p>Tenv, hc, Tblood, Ttissues, N, DeltaTT and Save each come from the model file; <b>Tinit</b> reads the initial temperature of every cube
 from a file (for instance the last <code>TN&lt;n&gt;</code> file of a previous run, as in the 2007 "Situacao 1, 2, 3" studies).
 This menu runs without the field (E&sup2; = 0). With <b>Run until steady state and save it as Tinit</b> (the default) it stops when the temperatures
-stop changing (change over a window below 1&nbsp;% of the change since the start, twice in a row) and saves them as <code>results/&lt;model&gt;_Tinit</code>,
+stop changing (change over a window below 0.01&nbsp;% of the change since the start, twice in a row) and saves them as <code>results/&lt;model&gt;_Tinit</code>,
 the starting point of SAR to Temperature. Results: <code>results/TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</p>
 <p>The steel cube model is the April/2007 validation: Tenv = 90, hc = 115, Ttissues = 450 (then with radiation off; since 2008 radiation is always on).</p>`,
     "SAR to Temperature (SAR->T)": `<h2>Calculate &rarr; SAR to Temperature</h2><p>Added in October 2008: asks for a file with E&sup2; for every cube
@@ -106,7 +106,7 @@ To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b
   saved in <code>results/John3Doe_v1_0_redux_Tinit</code>.</li>
   <li>Press <b>Start</b>.
     <ul><li>If that file does not exist yet, or was made for another Tenv, Tblood or hc, the run first calculates it.
-    It runs without SAR from Ttissues until the change of T over 600 steps is below 1&nbsp;% of its change since the start, at 2 checks in a row.
+    It runs without SAR from Ttissues until the change of T over 600 steps is below 0.01&nbsp;% of its change since the start, at 2 checks in a row.
     The status line shows that percentage. It saves the file and then runs the SAR heating from it.</li>
     <li>If the file exists, the SAR run starts from it at once.</li></ul></li>
   <li>At the end the Field Viewer shows <b>T</b> and <b>T rise since n = 0</b>, which is the rise caused by the phone, with the TMinAvMax curves under the image.</li></ul></li>
@@ -117,12 +117,12 @@ To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b
 (<code>John3Doe_v1_0_redux_Tinit</code>). It stays in <code>results/</code> across sessions, and every later SAR run of that model reuses it.
 It does not depend on the dipole, which is not part of the thermal calculation.</li>
 <li><b>Calculating it in advance.</b> <b>Calculate &rarr; Temperature (T)</b> with <b>Run until steady state and save it as Tinit</b> ticked (the default) also writes it.</li>
-<li><b>Settings.</b> The window (600 steps), the tolerance (1&nbsp;%) and the maximum (36001 steps = 10 h) are in the T window.
+<li><b>Settings.</b> The window (600 steps), the tolerance (0.01&nbsp;%) and the maximum (36001 steps = 10 h) are in the T window.
 If the maximum comes first, there is a warning, no Tinit and no SAR run.</li>
-<li><b>How steady is 1&nbsp;%?</b> On the Redux head, a Tinit made at 1&nbsp;% (80 min of simulated time) still drifts by up to 0.03&nbsp;&deg;C
+<li><b>Why 0.01&nbsp;%?</b> On the Redux head, a Tinit made at 1&nbsp;% (80 min of simulated time) still drifts by up to 0.03&nbsp;&deg;C
 in the next 30 min without any phone. That is more than the rise caused by a 1&nbsp;V dipole (0.008&nbsp;&deg;C on the full head).
 At 0.1&nbsp;% the drift is 0.004&nbsp;&deg;C (130 min); at 0.01&nbsp;% it is 0.0003&nbsp;&deg;C (190 min, about 3 minutes of calculation).
-For the rise of a phone use 0.01&nbsp;%. A Tinit made with a looser tolerance than the one in the window is calculated again.</li>
+So the default is 0.01&nbsp;%. A Tinit made with a looser tolerance than the one in the window is calculated again.</li>
 <li><b>Deleting it.</b> <b>View &rarr; Results Folder &rarr; Delete all</b> also deletes the Tinit files; they are then calculated again.</li>
 <li><b>Another starting point.</b> The <b>Tinit</b> button of the T window still lets you choose another file instead.</li>
 </ul>

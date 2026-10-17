@@ -311,7 +311,8 @@ test('temperature: a dtT above the stability limit of a material is refused', { 
 test('Temperature (T) until the steady state writes results/<model>_Tinit, reused by SAR -> T', { timeout: 300000 }, async () => {
     ResultsDisk.useMemory();
     const t = await load('Air_SmallHead.3dm');
-    const tf = await runT(t, { steady: true, frame: true }, 2);
+    const tf = await runT(t, { steady: true, frame: true, tol: 1 }, 2);
+    assert.equal(tf.steady.tol, 0.01);
     assert.ok(tf.steady.reached, 'thermal steady state reached');
     assert.equal(tf.steady.n % 600, 0);
     const last2 = tf.steady.log.slice(-2);
@@ -324,7 +325,7 @@ test('Temperature (T) until the steady state writes results/<model>_Tinit, reuse
     // SAR -> T (here with E2 = 0) finds it and starts from it: no new steady-state run, and no drift
     const zero = new Array(21 * 21 * 21).fill(0).join(' ');
     const before = ResultsStore.runs.length;
-    const sf = await runT(t, { N: 1201, skip: 600, frame: true }, 2, { name: 'zero_E2', text: zero });
+    const sf = await runT(t, { N: 1201, skip: 600, frame: true, tol: 1 }, 2, { name: 'zero_E2', text: zero });
     assert.equal(ResultsStore.runs.length, before + 1, 'only the SAR run');
     assert.equal(sf.TinitSource, '/results/Air_SmallHead_Tinit');
     const T = sf.run.snapshots[sf.run.snapshots.length - 1].fields.T;
@@ -332,11 +333,12 @@ test('Temperature (T) until the steady state writes results/<model>_Tinit, reuse
     for (let q = 0; q < T.length; q++) drift = Math.max(drift, Math.abs(T[q] - tinit[q]));
     process.stdout.write('# Tinit at n = ' + tf.steady.n + '; drift over 20 min from it without SAR: ' + drift.toExponential(2) + ' C\n');
     assert.ok(drift < 0.01, 'drift ' + drift);
-    // asking for a tighter tolerance than the saved one calculates Tinit again
+    // the default tolerance (0.01 %) is tighter than the saved 1 %: Tinit is calculated again
     const n0 = ResultsStore.runs.length;
-    await runT(t, { N: 11, skip: 10, tol: 0.1 }, 2, { name: 'zero_E2', text: zero });
+    const df = await runT(t, { N: 11, skip: 10, frame: true }, 2, { name: 'zero_E2', text: zero });
+    assert.equal(df.ToleranceText.getText(), '0.01');
     assert.equal(ResultsStore.runs.length, n0 + 2, 'a new steady-state run, then the SAR run');
-    assert.equal(JSON.parse(await ResultsDisk.readText('results/Air_SmallHead_Tinit.info')).tolerance, 0.001);
+    assert.equal(JSON.parse(await ResultsDisk.readText('results/Air_SmallHead_Tinit.info')).tolerance, 0.0001);
     ResultsStore.runs.length = 0;
 });
 
