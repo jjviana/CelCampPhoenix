@@ -12,7 +12,7 @@ This is a port to JavaScript of the last known version, the backup of 27 May 201
 | JPVM slaves (one JVM each, TCP between them) | Web Workers, MessageChannels between them |
 | `java jpvm.jpvmDaemon` + `jpvmConsole` in shells | a daemon object in the page (**JPVM → Console**) |
 | results written to `CelCampJava_v1.0/results/` | written to `results/` in the browser's private file system (OPFS), same text formats |
-| MATLAB scripts to look at the results | **Tools → Field Viewer** |
+| MATLAB scripts to look at the results | **View → Field Viewer** |
 
 ## Running it
 
@@ -32,7 +32,7 @@ Then, as in 2006: **File → New**, pick a model, and use the **Calculate** menu
 2. **Tools → Place Dipole Antenna → Place**: a half-wave copper dipole at 1.8 GHz beside the ear (new in the port; in 2010 the dipole was drawn into the model files).
 3. **Calculate → Eletromagnetic Fields (EH) → Start**, with **Run until steady state** on. The window shows, at every step, how much the last period differs from the one before. When that stays below the tolerance for 2 periods, the run stops and writes |E| every `reduzN` steps, the E² of the last period (`results/<name>_E2_<f>Hz`) and the SAR. `N` is then only the maximum.
 4. **Calculate → SAR to Temperature**: choose that E² file; the bioheat equation now includes the heat of the field (σE²/2).
-5. **Tools → Field Viewer**: |E|, E², SAR, T and the temperature rise.
+5. **View → Field Viewer** (it opens by itself at the end of each run, and again from this menu if you close it): |E|, E², SAR, T and the temperature rise.
 
 ### Bundled models (`models/`)
 

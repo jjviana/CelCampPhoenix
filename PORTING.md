@@ -95,7 +95,7 @@ Each fix keeps the shape of the original code. The comment next to it shows what
 
 ## Additions
 
-They exist only in the web version and live in `js/phoenix/` and the **Tools** menu:
+They exist only in the web version and live in `js/phoenix/` and the **View** and **Tools** menus:
 
 - **Run until steady state**, in the EH window (on by default). `N` becomes the maximum number of steps.
   - **Every step**, the slaves send the sum of |E|² over their cubes, weighted by σ/(2ρ) of the tissues (so it follows the SAR; unweighted in a model without tissue). The master compares the average of the last period (`1/(f·dt)` steps) with the period before, and shows the difference in the window.
@@ -107,8 +107,8 @@ They exist only in the web version and live in `js/phoenix/` and the **Tools** m
   - With the box unchecked the run has the fixed `N` of 2010 and writes no E².
   - **NPROC.** Fields and E² stay bit-identical for any NPROC. The per-step difference is a sum over the slaves, so it can differ in the last bits.
 - **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
-- **Results folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
-- **Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
+- **View → Results Folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
+- **View → Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
 - **JPVM → Console**: the old `jpvmConsole` `ps`, plus the slaves' log files.
 - **Tools → Redux Model** exposes `Model.redux()`.
 - **NPROC** can be chosen again, in both windows.

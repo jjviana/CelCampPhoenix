@@ -94,8 +94,9 @@ export class JFrame {
         if (isNarrow()) { this.win.style.left = ''; this.win.style.top = ''; return; }
         const d = getDesktop();
         const step = 28;
-        // to the right of the main window (16..316) when there is room
-        const x0 = d.clientWidth > 900 ? 336 : 40;
+        // to the right of the main window when there is room
+        const main = document.querySelector('.telainicial');
+        const x0 = d.clientWidth > 900 ? (main && main.offsetWidth ? main.offsetLeft + main.offsetWidth + 20 : 336) : 40;
         const x = x0 + (cascade * step) % Math.max(step, d.clientWidth - x0 - 460);
         const y = 16 + (cascade * step) % Math.max(step, d.clientHeight - 300);
         cascade++;

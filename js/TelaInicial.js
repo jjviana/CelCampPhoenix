@@ -123,15 +123,22 @@ export class TelaInicial extends JFrame {
         this.CalculateMenu.add(this.CalculateTMenu);
         this.jMenuBar1.add(this.CalculateMenu);
 
-        // Phoenix: tools that replace the MATLAB scripts and the shell
-        this.ToolsMenu = new JMenu("Tools", "o");
-        this.MenuViewer = new JMenuItem("Field Viewer", "V", () => this.openViewer());
-        this.MenuViewer.setToolTipText("Slices of the model, the fields and the temperatures (replaces the MATLAB scripts).");
-        this.ToolsMenu.add(this.MenuViewer);
+        // Phoenix: the windows that can be closed and opened again
+        this.ViewMenu = new JMenu("View", "V");
+        this.MenuViewer = new JMenuItem("Field Viewer", "F", () => this.openViewer());
+        this.MenuViewer.setToolTipText("Slices of the model, the fields and the temperatures (replaces the MATLAB scripts). Opens again with what it was showing.");
+        this.ViewMenu.add(this.MenuViewer);
         this.MenuResults = new JMenuItem("Results Folder (results/)", "R", () => this.openResults());
         this.MenuResults.setToolTipText("The files written by the calculations, kept in the browser.");
-        this.ToolsMenu.add(this.MenuResults);
-        this.ToolsMenu.addSeparator();
+        this.ViewMenu.add(this.MenuResults);
+        this.MenuSimulData = new JMenuItem("Simulation Data", "S", () => this.openSimulData());
+        this.MenuSimulData.setToolTipText("The table of the materials of the model that is open.");
+        this.MenuSimulData.setEnabled(false);
+        this.ViewMenu.add(this.MenuSimulData);
+        this.jMenuBar1.add(this.ViewMenu);
+
+        // Phoenix: tools that work on the model
+        this.ToolsMenu = new JMenu("Tools", "o");
         this.MenuRedux = new JMenuItem("Redux Model (halve the resolution)", "d", () => this.MenuReduxActionPerformed());
         this.MenuRedux.setToolTipText("Model.redux(): keeps every second cube, so the EH calculation of the head fits in the browser.");
         this.MenuRedux.setEnabled(false);
@@ -658,6 +665,7 @@ export class TelaInicial extends JFrame {
         this.CalculateTMenu.setEnabled(true);
         this.MenuRedux.setEnabled(true);
         this.MenuDipole.setEnabled(true);
+        this.MenuSimulData.setEnabled(true);
         this.CalculateSAR_TMenu.setEnabled(true);
         this.ModelWasRead = true;
         this.EHwasCalculated = false;
@@ -725,6 +733,18 @@ export class TelaInicial extends JFrame {
         else if (!v.current && this.ModelWasRead) v.showModel(this.modelForViewer());
         v.setVisible(true);
         return v;
+    }
+
+    /** Phoenix: View -> Simulation Data, for the model as it is now (after Redux or a dipole too). */
+    openSimulData() {
+        if (!this.ModelWasRead) return null;
+        if (this.simulData && !this.simulData.disposed) this.simulData.dispose();
+        const SD = new SimulData(this.model.name(), this.model.x(), this.model.y(), this.model.z(), this.model.dx(), this.model.dy(), this.model.dz(), this.mat, this.NumMaterials);
+        SD.setDefaultCloseOperation('dispose');
+        SD.setLocationByPlatform(true);
+        SD.setVisible(true);
+        this.simulData = SD;
+        return SD;
     }
 
     async openResults() {

@@ -68,10 +68,12 @@ with a gap cube of air in the middle and a hard E source in the gap; the sources
 with <code>jpvmConsole</code>, and one JVM per slave. In the web version the virtual machine lives in the page: every slave
 is a Web Worker, and the tasks talk through MessageChannels with the same <code>pvm_send</code>/<code>pvm_recv</code> calls.</p>
 <p><b>JPVM &rarr; Test</b> spawns 5 <code>Hello_slave</code> tasks. <b>JPVM &rarr; Console</b> lists the tasks and their log files.</p>`,
-    "Field Viewer": `<h2>Tools &rarr; Field Viewer</h2><p>Slices of the model (materials), of |E|, E&sup2;, SAR, the temperature or its rise, along X, Y or Z,
+    "Field Viewer": `<h2>View &rarr; Field Viewer</h2><p>Slices of the model (materials), of |E|, E&sup2;, SAR, the temperature or its rise, along X, Y or Z,
 with a time slider over the saved steps and the MinAvMax curve of the temperature runs. It replaces the MATLAB scripts of 2007
-(PlotSliceFields.m, PlotFieldsMovie.m, CompareCubeSteel_2007.m...).</p>`,
-    "Results Folder": `<h2>Tools &rarr; Results Folder</h2><p>The files written by the calculations, kept in the browser's private storage
+(PlotSliceFields.m, PlotFieldsMovie.m, CompareCubeSteel_2007.m...).</p>
+<p>Closing it only hides it: <b>View &rarr; Field Viewer</b> opens it again with what it was showing. The first drop-down
+switches between the model and every calculation of the session.</p>`,
+    "Results Folder": `<h2>View &rarr; Results Folder</h2><p>The files written by the calculations, kept in the browser's private storage
 (Origin Private File System) in the same text formats as in 2007. They can be downloaded, opened in the viewer, used as Tinit, or deleted.</p>`,
     "TLDR": `<h2>TLDR: phone beside the head, from EH to SAR to temperature</h2>
 <p>The menus to select, on the reduced head:</p>
@@ -91,7 +93,8 @@ Do this <i>before</i> placing the antenna: a one-cube wire placed earlier can fa
   <li>The end dialog gives the step where it stopped, the E&sup2; file <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> and the peak SAR.</li>
   <li>If N runs out first you get a warning and no E&sup2; file: increase N and run again.</li></ul></li>
 <li><b>SAR.</b> There is no separate SAR menu: SAR = &sigma;E&sup2;/(2&rho;) is computed from that E&sup2; file.
-To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b>Field Viewer</b>, which opens at the end of the EH run.</li>
+To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b>Field Viewer</b>, which opens at the end of the EH run
+(if you close it, <b>View &rarr; Field Viewer</b> opens it again).</li>
 <li><b>Temperature with the SAR.</b> <b>Calculate &rarr; SAR to Temperature (SAR-&gt;T)</b>
   <ul><li>Choose <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> in the file list.</li>
   <li>The T window opens with the values of the model file: N = 10001 steps of 1 s, Tenv = 25, Tblood = Ttissues = 36.8, hc = 2.7.</li>
@@ -115,7 +118,8 @@ const TREE = [
     ["Menu Principal", [
         ["File", ["New", "Open", "Save", "Close"]],
         ["Calculate", ["Eletromagnetic Fields (EH)", "SAR to Temperature (SAR->T)", "Temperature (T)"]],
-        ["Tools", ["Field Viewer", "Results Folder", "Place Dipole Antenna"]],
+        ["View", ["Field Viewer", "Results Folder"]],
+        ["Tools", ["Place Dipole Antenna"]],
         ["JPVM", ["JPVM"]],
         ["Help", ["TLDR", "About this port"]],
     ]],
