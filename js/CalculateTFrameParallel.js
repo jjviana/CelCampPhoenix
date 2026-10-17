@@ -20,9 +20,8 @@
  *
  * Phoenix: CONDUCTION.  "2010" (the default) conducts heat to every
  * neighbour that is not air, as CelCampJava does.  "2003" reproduces the C
- * program of the thesis (Versao_em_C_final/Thermal/FDTDSimulator.cpp), where
- * k.lap(T) only sees neighbours of the same tissue (one-sided at an
- * interface): no heat crosses from one tissue to another (see
+ * program of the thesis (version of 25/03/2003): k.lap(T) only between
+ * cubes of the same tissue, and between tissues only |delta k| along x (see
  * FDTD_T_slave.calculateGrads2003).  Its steady state is saved apart, as
  * results/<model>_Tinit_2003.
  */
@@ -136,7 +135,7 @@ export class CalculateTFrameParallel extends JFrame {
         this.TbloodText = new JTextField("36.8", 5);
         this.TtissuesText = new JTextField("36.8", 5);
         this.ConductionCombo = new JComboBox(CalculateTFrameParallel.CONDUCTIONS, CalculateTFrameParallel.CONDUCTIONS[0]);
-        this.ConductionCombo.setToolTipText("2010: heat flows to every neighbour that is not air (CelCampJava).  2003: only to neighbours of the same tissue, as in the C program of the thesis (Rodrigues 2003).");
+        this.ConductionCombo.setToolTipText("2010: heat flows to every neighbour that is not air (CelCampJava).  2003: as the C program of the thesis (25/03/2003): K to neighbours of the same tissue; between tissues only |delta K|, and only along x.");
         this.LoadTinitFileButton = new JButton("Tinit", () => this.LoadTinitFileButtonMouseClicked());
         this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a TN file of a previous run).");
         this.TinitLabel = new JLabel("", "jnote");

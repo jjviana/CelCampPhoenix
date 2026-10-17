@@ -58,9 +58,9 @@ This menu runs without the field (E&sup2; = 0). With <b>Run until steady state a
 stop changing (change over a window below 0.01&nbsp;% of the change since the start, twice in a row) and saves them as <code>results/&lt;model&gt;_Tinit</code>,
 the starting point of SAR to Temperature. Results: <code>results/TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</p>
 <p><b>Conduction between tissues</b>: <i>2010</i> (the default) lets heat flow to every neighbour cube that is not air, as CelCampJava does.
-<i>2003</i> reproduces the C program of the thesis (Rodrigues 2003, <code>Versao_em_C_final</code>): K&nabla;&sup2;T only between cubes of the
-<i>same</i> tissue, so no heat crosses from one tissue to another. Its steady state is saved apart, as <code>results/&lt;model&gt;_Tinit_2003</code>.
-(The C program also had a &nabla;K&middot;&nabla;T term between tissues; as written it is unstable with 1&nbsp;s steps, so it is left out.)</p>
+<i>2003</i> reproduces the C program of the thesis (Rodrigues 2003, version of 25/03/2003): K&nabla;&sup2;T only between cubes of the
+<i>same</i> tissue; between different tissues only the &nabla;K&middot;&nabla;T term, and only along x, so heat crosses with the conductance |&Delta;K|
+instead of K. Its steady state is saved apart, as <code>results/&lt;model&gt;_Tinit_2003</code>.</p>
 <p>The steel cube model is the April/2007 validation: Tenv = 90, hc = 115, Ttissues = 450 (then with radiation off; since 2008 radiation is always on).</p>`,
     "SAR to Temperature (SAR->T)": `<h2>Calculate &rarr; SAR to Temperature</h2><p>Added in October 2008: asks for a file with E&sup2; for every cube
 (x outermost, z fastest) and runs the temperature calculation with the heat of the field, hem = &sigma;&middot;E&sup2;/2

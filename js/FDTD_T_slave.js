@@ -354,7 +354,7 @@ export class FDTD_T_slave {
                             let conductionHeat;
                             if (conduction === 2003) {
                                 Nb[0] = Xminus; Nb[1] = Xplus; Nb[2] = Yminus; Nb[3] = Yplus; Nb[4] = Zminus; Nb[5] = Zplus;
-                                conductionHeat = FDTD_T_slave.calculateGrads2003(code, K, Nb, Tpoint, Tant, dx, dy, dz);
+                                conductionHeat = FDTD_T_slave.calculateGrads2003(code, K, Nb, Tpoint, Tant, Air, C.K, dx, dy, dz);
                             } else {
                                 conductionHeat = FDTD_T_slave.calculateGrads(K, Tpoint, Tant, Air, dx, dy, dz);
                             }
@@ -565,20 +565,23 @@ export class FDTD_T_slave {
 
     /**
      * Phoenix: the conduction of the C program of the thesis (A. O.
-     * Rodrigues, 2003; Versao_em_C_final/Thermal/FDTDSimulator.cpp,
-     * ThermalPoint, Gandhi formulation).  Its k.lap(T) ("gradA") only uses
-     * the neighbours of the same tissue: the centred difference when both
-     * are, one side when only one is, nothing when none is.  So no heat
-     * crosses from one tissue to another (nor into the air, as in 2010).
-     *
-     * Left out: its grad(k).grad(T) ("gradB").  On the expanded grid of the C
-     * program a cube holds the points 2i and 2i+1, so it read
-     * (k - k-)(T - T-)/d^2 with the neighbour on the minus side: a term that
-     * pushes a cube away from the temperature of a neighbour of lower k.  With
-     * dtT = 1 s it diverges within a few hundred steps on John3Doe (and on
-     * Air_SmallHead), so it cannot be what produced the results of the thesis.
+     * Rodrigues, 2003), as in its version of 25/03/2003
+     * (Versao_em_C/FDTDSimulator.cpp, ThermalPoint, Gandhi formulation;
+     * found in CelCampJava_v1.0_ThermalOK_03042007.zip):
+     *  - k.lap(T) ("gradA") only uses the neighbours of the same tissue: the
+     *    centred difference when both are, one side when only one is,
+     *    nothing when none is;
+     *  - grad(k).grad(T) ("gradB") only along x (the y and z terms are
+     *    commented out), when the cube and both x neighbours are not air and
+     *    k changes on one side:
+     *        gB1 = (k+ - k)/dx . (T+ - T)/dx,  gB2 = (k - k-)/dx . (T - T-)/dx
+     *    each forced to carry heat from the hotter cube to the colder one.
+     *    That is |k+ - k| (T+ - T)/dx^2 + |k - k-| (T- - T)/dx^2: between
+     *    tissues heat flows only along x, with the conductance |delta k|.
+     * (The later copy, Versao_em_C_final of 2006, has another gradB, which
+     * diverges; see PORTING.md.)
      */
-    static calculateGrads2003(code, K, Nb, Tpoint, Tant, dx, dy, dz) {
+    static calculateGrads2003(code, K, Nb, Tpoint, Tant, Air, KN, dx, dy, dz) {
         let gA = 0;
         for (let g = 0; g < 3; g++) {
             const delta = g === 0 ? dx : (g === 1 ? dy : dz);
@@ -589,7 +592,13 @@ export class FDTD_T_slave {
             else if (sameP) gA += (TP - Tpoint) / d2;
             else if (sameM) gA += (TM - Tpoint) / d2;
         }
-        return K * gA;
+        let gB = 0;
+        if (!Air[0] && !Air[1]) {
+            const kM = KN[Nb[0]], kP = KN[Nb[1]];
+            if (kP !== K || kM !== K)
+                gB = (Math.abs(kP - K) * (Tant[1] - Tpoint) + Math.abs(K - kM) * (Tant[0] - Tpoint)) / (dx * dx);
+        }
+        return K * gA + gB;
     }
 
     static par(i) { return (i % 2) === 0; }

@@ -440,19 +440,23 @@ test('E2 of a dipole run heats the tissues in SAR -> T (Tinit calculated first),
     ResultsStore.runs.length = 0;
 });
 
-test('2003 conduction (thesis C program): same tissue only in k.lap(T); equals 2010 inside one tissue', async () => {
+test('2003 conduction (thesis C program, 25/03/2003): same tissue in k.lap(T), |delta k| between tissues along x only', async () => {
     const { FDTD_T_slave } = await import('../js/FDTD_T_slave.js');
-    const d = 1e-3, Air = [false, false, false, false, false, false];
+    const KN = new Float64Array(256); KN[2] = 0.5; KN[3] = 0.36;
+    const d = 1e-3, noAir = [false, false, false, false, false, false];
     const Tant = Float64Array.from([37, 36, 36.5, 36.9, 36.2, 36.4]);
-    const a = FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([2, 2, 2, 2, 2, 2]), 36.6, Tant, d, d, d);
-    const b = FDTD_T_slave.calculateGrads(0.5, 36.6, Tant, Air, d, d, d);
-    assert.ok(Math.abs(a - b) < 1e-9 * Math.abs(b), a + ' vs ' + b);
-    // every neighbour of another tissue: no conduction at all
-    assert.equal(FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([3, 3, 3, 3, 3, 3]), 36.6, Tant, d, d, d), 0);
-    // one neighbour of another tissue: one-sided difference towards the same tissue
-    const g = FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from([3, 2, 2, 2, 2, 2]), 36.6, Tant, d, d, d);
-    const gA = ((36 - 36.6) + (36.5 - 2 * 36.6 + 36.9) + (36.2 - 2 * 36.6 + 36.4)) / (d * d);
-    assert.ok(Math.abs(g - 0.5 * gA) < 1e-9 * Math.abs(g), g + ' vs ' + 0.5 * gA);
+    const g = (nb, air = noAir) => FDTD_T_slave.calculateGrads2003(2, 0.5, Int32Array.from(nb), 36.6, Tant, air, KN, d, d, d);
+    // inside one tissue: the same as 2010
+    const b = FDTD_T_slave.calculateGrads(0.5, 36.6, Tant, noAir, d, d, d);
+    assert.ok(Math.abs(g([2, 2, 2, 2, 2, 2]) - b) < 1e-9 * Math.abs(b));
+    // other tissues along y and z: nothing crosses
+    assert.equal(g([2, 2, 3, 3, 3, 3]), (0.5 * (36 - 2 * 36.6 + 37)) / (d * d));
+    // another tissue on the minus side of x: one-sided gradA plus |k - k-| (T- - T)
+    const want = (0.5 * ((36 - 36.6) + (36.5 - 2 * 36.6 + 36.9) + (36.2 - 2 * 36.6 + 36.4)) + Math.abs(0.5 - 0.36) * (37 - 36.6)) / (d * d);
+    assert.ok(Math.abs(g([3, 2, 2, 2, 2, 2]) - want) < 1e-9 * Math.abs(want));
+    // gradB needs both x neighbours not air
+    const airPlus = [false, true, false, false, false, false];
+    assert.ok(Math.abs(g([3, 1, 2, 2, 2, 2], airPlus) - 0.5 * ((36.5 - 2 * 36.6 + 36.9) + (36.2 - 2 * 36.6 + 36.4)) / (d * d)) < 1e-6);
 });
 
 test('SAR -> T with the 2003 conduction: own Tinit file, NPROC 1 = 3, and a different result from 2010', { timeout: 300000 }, async () => {
