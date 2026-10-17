@@ -154,6 +154,9 @@ export class TelaInicial extends JFrame {
         this.HelpMenu = new JMenu("Help", "H");
         this.MenuContents = new JMenuItem("Contents", "C", () => this.MenuContentsActionPerformed());
         this.HelpMenu.add(this.MenuContents);
+        this.MenuTLDR = new JMenuItem("TLDR", "T", () => this.MenuContentsActionPerformed("TLDR"));
+        this.MenuTLDR.setToolTipText("The menus to select, from the EH field to the SAR and the temperature.");
+        this.HelpMenu.add(this.MenuTLDR);
         this.MenuAbout = new JMenuItem("About", "A", () => this.MenuAboutActionPerformed());
         this.MenuAbout.setToolTipText("Information about JCelCamp");
         this.HelpMenu.add(this.MenuAbout);
@@ -314,8 +317,8 @@ export class TelaInicial extends JFrame {
         return this.OpenNewModel();
     }
 
-    MenuContentsActionPerformed() {
-        const Contents = new HelpFrame();
+    MenuContentsActionPerformed(page) {
+        const Contents = new HelpFrame(page);
         console.log("** Chamando o Menu Contents HelpFrame.");
         Contents.setLocationByPlatform(true);
         Contents.setVisible(true);

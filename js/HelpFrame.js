@@ -73,6 +73,40 @@ with a time slider over the saved steps and the MinAvMax curve of the temperatur
 (PlotSliceFields.m, PlotFieldsMovie.m, CompareCubeSteel_2007.m...).</p>`,
     "Results Folder": `<h2>Tools &rarr; Results Folder</h2><p>The files written by the calculations, kept in the browser's private storage
 (Origin Private File System) in the same text formats as in 2007. They can be downloaded, opened in the viewer, used as Tinit, or deleted.</p>`,
+    "TLDR": `<h2>TLDR: phone beside the head, from EH to SAR to temperature</h2>
+<p>The menus to select, on the reduced head:</p>
+<ol>
+<li><b>Open the head.</b> <b>File &rarr; New &rarr; John3Doe_v1_0.3dm</b>, then close the Simulation Data window.</li>
+<li><b>Reduce it.</b> <b>Tools &rarr; Redux Model &rarr; OK</b>: 75&times;129&times;129 cubes, cube sizes and dt doubled.
+Do this <i>before</i> placing the antenna: a one-cube wire placed earlier can fall between the cubes that Redux keeps.</li>
+<li><b>Place the phone antenna.</b> <b>Tools &rarr; Place Dipole Antenna&hellip;</b>
+  <ul><li>Check the frequency (1.8 GHz by default).</li>
+  <li>Keep the proposal (beside the ear, vertical, half-wave, 1 cm from the skin) or press <b>Beside the head</b> to recompute it.</li>
+  <li>Optionally set the gap voltage (default 1 V), then <b>Place &rarr; OK</b>.</li></ul></li>
+<li><b>Electromagnetic field.</b> <b>Calculate &rarr; Eletromagnetic Fields (EH)</b>
+  <ul><li>Select the same frequency as the dipole.</li>
+  <li>Leave <b>Run until steady state</b> ticked: N (8000) is only the maximum, the tolerance is 1&nbsp;%.</li>
+  <li>Press <b>Start</b>. The status line shows the difference between the last two periods at every step; the run stops by itself
+  once that stays below the tolerance for 2 periods.</li>
+  <li>The end dialog gives the step where it stopped, the E&sup2; file <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> and the peak SAR.</li>
+  <li>If N runs out first you get a warning and no E&sup2; file: increase N and run again.</li></ul></li>
+<li><b>SAR.</b> There is no separate SAR menu: SAR = &sigma;E&sup2;/(2&rho;) is computed from that E&sup2; file.
+To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b>Field Viewer</b>, which opens at the end of the EH run.</li>
+<li><b>Temperature with the SAR.</b> <b>Calculate &rarr; SAR to Temperature (SAR-&gt;T)</b>
+  <ul><li>Choose <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> in the file list.</li>
+  <li>The T window opens with the values of the model file: N = 10001 steps of 1 s, Tenv = 25, Tblood = Ttissues = 36.8, hc = 2.7.</li>
+  <li>Press <b>Start</b>. At the end the Field Viewer shows <b>T</b> and <b>T rise since n = 0</b>, with the TMinAvMax curves under the image.</li></ul></li>
+</ol>
+<p><b>Things that break the sequence:</b></p>
+<ul>
+<li><b>Same session.</b> Do steps 2 to 6 without reopening the model. Reopening it goes back to full resolution without the dipole,
+and the reduced E&sup2; file then no longer matches the grid.</li>
+<li><b>Baseline (optional, as in 2007).</b> The head drifts by a few tenths of a degree from a uniform 36.8&nbsp;&deg;C even without the phone.
+To start from its own equilibrium:
+  <ol><li>Before step 6, run <b>Calculate &rarr; Temperature (T)</b> (no SAR).</li>
+  <li>In step 6, press <b>Tinit</b> and choose its last <code>results/TN&hellip;</code> file.</li>
+  <li>Download the baseline files first if you want to keep them: the T runs overwrite <code>TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</li></ol></li>
+</ul>`,
     "About this port": `<h2>CelCamp Phoenix</h2><p>CelCampJava v1.0 (Copacabana, 2004&ndash;2010) ported to JavaScript in 2026 from the version of 27 May 2010, keeping the classes,
 methods and the master/slave protocol of the original. The changes are listed in PORTING.md.</p>`,
 };
@@ -83,12 +117,13 @@ const TREE = [
         ["Calculate", ["Eletromagnetic Fields (EH)", "SAR to Temperature (SAR->T)", "Temperature (T)"]],
         ["Tools", ["Field Viewer", "Results Folder", "Place Dipole Antenna"]],
         ["JPVM", ["JPVM"]],
-        ["Help", ["About this port"]],
+        ["Help", ["TLDR", "About this port"]],
     ]],
 ];
 
 export class HelpFrame extends JFrame {
-    constructor() {
+    /** Phoenix: `page` is the page shown first (2006: always "New"). */
+    constructor(page) {
         super("Help Window");
         this.setDefaultCloseOperation('dispose');
         if (!hasDOM) return;
@@ -134,7 +169,7 @@ export class HelpFrame extends JFrame {
         }
         tContents.addEventListener('click', () => { contents.style.display = ''; index.style.display = 'none'; tContents.classList.add('selected'); tIndex.classList.remove('selected'); });
         tIndex.addEventListener('click', () => { contents.style.display = 'none'; index.style.display = ''; tIndex.classList.add('selected'); tContents.classList.remove('selected'); });
-        this.show("New");
+        this.show(page && PAGES[page] ? page : "New");
     }
 
     show(texto) {
