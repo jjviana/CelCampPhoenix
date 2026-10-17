@@ -650,6 +650,12 @@ export class CalculateEHFrameParallel extends JFrame {
     saveE2(E2, steps) {
         const name = this.PATH + "/results/" + this.SimulName + "_E2_" + doubleToString(this.f) + "Hz";
         const e2 = E2.getData();
+        // The wire is a perfect conductor here (FDTD_slave zeroes E along it), so E2 = 0 inside
+        // it.  The average of the edges it shares with the air is not, and sigma = 5.8e7 of
+        // copper turned that into ~1e8 W/m3 in SAR -> T: the wire overheated until NaN.
+        const wire = new Uint8Array(256);
+        for (const m of this.Mat) if (/^(copper|source)/i.test(m.name())) wire[m.code()] = 1;
+        for (let q = 0; q < e2.length; q++) if (wire[this.run.codes[q]]) e2[q] = 0;
         ResultsDisk.writeMatrix(name, e2, E2.tx, E2.ty * E2.tz);
         this.E2file = name.replace(/^\//, "");
         const sar = new Float32Array(e2.length);

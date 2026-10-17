@@ -288,23 +288,54 @@ test('steady state not reached within N: warning, no E2 file', { timeout: 120000
     ResultsStore.runs.length = 0;
 });
 
-test('E2 of an EH run heats the tissues in SAR -> T', { timeout: 240000 }, async () => {
+test('temperature: a dtT above the stability limit of a material is refused', { timeout: 60000 }, async () => {
     ResultsDisk.useMemory();
     const t = await load('Air_SmallHead.3dm');
+    const f = await t.MenuDipoleActionPerformed(); f.suggest(); await f.place();
+    // the wire itself is not updated, so this runs
+    const ok = await runT(t, { N: 11, skip: 10 }, 1);
+    assert.ok(ok.snapshots[ok.snapshots.length - 1].fields.T.every(Number.isFinite));
+    // copper that is not the antenna's wire would diverge at dtT = 1 s (limit ~2 ms on this grid)
+    t.mat.find(m => /^copper/i.test(m.name())).name_[0] = 'Coper';
+    const tf = await t.CalculateTMenuActionPerformed();
+    await tf.StartButtonActionPerformed();
+    assert.equal(tf.run, null, 'the run did not start');
+    assert.equal(tf.StartButton.isEnabled(), true);
+});
+
+test('E2 of a dipole run heats the tissues in SAR -> T, and nothing becomes NaN', { timeout: 300000 }, async () => {
+    ResultsDisk.useMemory();
+    const t = await load('Air_SmallHead.3dm');
+    const f = await t.MenuDipoleActionPerformed(); f.suggest(); await f.place();
+    const cu = t.mat.find(m => /^copper/i.test(m.name())).code();
     const pf = await runEH(t, { N: 8000, skip: 2000, steady: true }, 2);
     assert.ok(pf.steady.reached);
     assert.ok(pf.E2file);
     const sarText = await ResultsDisk.readText(pf.E2file);
-    const opts = { N: 61, skip: 20 };
+    const e2 = sarText.trim().split(/\s+/).map(Number);
+    const codes = t.model.getData();
+    assert.ok(codes.some(c => c === cu));
+    // the wire is a perfect conductor: no E2 in its cubes
+    for (let q = 0; q < e2.length; q++) if (codes[q] === cu) assert.equal(e2[q], 0);
+    const opts = { N: 2001, skip: 1000 };
     const hot = await runT(t, opts, 2, { name: pf.E2file, text: sarText });
     const cold = await runT(t, opts, 2);
     const last = (r) => r.snapshots[r.snapshots.length - 1].fields.T;
     let warmer = 0, colder = 0;
     const a = last(hot), b = last(cold);
-    for (let q = 0; q < a.length; q++) { if (a[q] > b[q] + 1e-9) warmer++; if (a[q] < b[q] - 1e-9) colder++; }
+    for (let q = 0; q < a.length; q++) {
+        assert.ok(Number.isFinite(a[q]), 'T of cube ' + q + ' is ' + a[q]);
+        if (a[q] > b[q] + 1e-9) warmer++;
+        if (a[q] < b[q] - 1e-9) colder++;
+    }
     assert.ok(warmer > 0, 'some cube got warmer');
     assert.equal(colder, 0);
+    assert.ok(hot.series.every(s => Number.isFinite(s.avg)), 'TMinAvMax has no NaN');
     // T rise since n = 0 is in the snapshots
     assert.ok(hot.snapshots[hot.snapshots.length - 1].fields.TRise);
+    // an E2 file written before the fix, with E2 left in the copper cubes, does not heat the wire either
+    const old = e2.map((v, q) => codes[q] === cu ? 6.3 : v).join(' ');
+    const oldRun = await runT(t, opts, 2, { name: 'old_E2', text: old });
+    assert.equal(maxDiff(last(oldRun), a), 0);
     ResultsStore.runs.length = 0;
 });

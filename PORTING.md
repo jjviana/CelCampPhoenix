@@ -64,7 +64,12 @@ Each fix keeps the shape of the original code. The comment next to it shows what
 **Temperature (`FDTD_T_slave`, `CalculateTFrameParallel`)**
 
 7. **Parallelisation.** It was still on the to-do list: the T slaves never exchanged borders. They now exchange the neighbouring planes: material codes once, temperatures every step.
-8. **dtT stability limits.** The Wang/Bernardi checks changed `dtThour` after `const1` had been computed from it, so they had no effect. They now apply.
+8. **dtT stability limits.** The Wang/Bernardi checks changed `dtThour` after `const1` had been computed from it, so they had no effect. They also had the wrong units: `C·3600` turns C into J/(kg·°C), so the limits came out in seconds and were compared with dt in hours, 3600 times too lax.
+   - They are now in hours and use the three deltas. The T window refuses to start when dtT is above the Wang limit of a material in the model, and says which. Bernardi's limit is only logged, as in 2010; it also counts surface convection and flags the steel cube at 0.89 s, which runs correctly at 1 s.
+   - On the head every tissue allows dtT = 1 s. The smallest limit is CSF: 1.76 s at full resolution, 7 s after Redux.
+   - Copper does not: about 2 ms on the head grid. Before this fix the wire of a dipole overflowed to NaN in **SAR to Temperature**, and with it the average of `TMinAvMax.txt`.
+   - The antenna's wire (`copper…`/`source…`) is now left out of the thermal update: its cubes keep their initial temperature, as the air keeps Tenv. Its E² is written as 0 (it is a perfect conductor in the EH calculation).
+   - A saved temperature step that contains a non-finite value now stops the run, naming the material and the cube.
 9. **Model border.** A tissue cube on the model border threw `ArrayIndexOutOfBoundsException`. Such neighbours are now treated as air.
 10. **σ of the SAR** was `mat.si(1)`, which fails on single-frequency models. Index 0 is used there.
 11. **Temperature (T) menu.** It passed `reduzN`, the EH skip, as the T skip, and the last SAR file that had been read. It now passes `reduzNT` and no SAR. **SAR to Temperature** is the menu for that.

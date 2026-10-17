@@ -21,6 +21,7 @@ import { hasDOM, el, JLabel, JTextField, JButton, JSpinner, JProgressBar, JCheck
 import { ResultsDisk } from './phoenix/ResultsDisk.js';
 import { ResultsStore } from './phoenix/ResultsStore.js';
 import { InputFileChooser } from './InputFileChooser.js';
+import { FDTD_T_slave } from './FDTD_T_slave.js';
 
 const TAG_ACK = 905; // Phoenix: see FDTD_T_slave
 
@@ -225,7 +226,10 @@ export class CalculateTFrameParallel extends JFrame {
         CalculateTFrameParallel.NPROC = this.NProcSpinner.getValue() || 1;
         ResultsDisk.enabled = this.WriteFilesCheckBox.isSelected();
         this.setMaxMin(0, this.max);
-        await this.TestDTT();
+        if (!(await this.TestDTT())) {
+            this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
+            return;
+        }
         console.log("*** Calculando o aumento de Temperatura (T) por " + this.max + " instantes de tempo com DeltaTT=" + this.dtT + "s ...");
         this.tTcalc = this.CalculateTParallel();
         return this.tTcalc;
@@ -277,6 +281,28 @@ export class CalculateTFrameParallel extends JFrame {
             this.dtT = MinDTT;
             await JOptionPane.showMessageDialog(this, "Delta TT menor do que o minimo! Alterado para " + this.dtT + "s !", "ERRO NO Delta TT", JOptionPane.ERROR_MESSAGE);
         }
+        return this.TestStability();
+    }
+
+    /**
+     * Phoenix: the explicit scheme diverges in a material whose stability
+     * limit (FDTD_T_slave.stabilityLimits, Wang) is below dtT.  The 2007 check
+     * had the wrong units and never fired.  The wire of the antenna and the
+     * air are not updated, so they do not count.
+     */
+    async TestStability() {
+        const present = new Uint8Array(256);
+        for (const c of this.M.getData()) present[c] = 1;
+        const bad = [];
+        for (const m of this.Mat) {
+            if (!present[m.code()] || m.isAir() || FDTD_T_slave.isWire(m) || !(m.density() > 0)) continue;
+            const limit = FDTD_T_slave.stabilityLimits(m, this.dx, this.dy, this.dz, this.Henv)[0] * 3600;
+            if (this.dtT > limit) bad.push(m.name() + " (" + limit.toPrecision(3) + " s)");
+        }
+        if (!bad.length) return true;
+        await JOptionPane.showMessageDialog(this, "Delta TT = " + this.dtT + " s is above the stability limit of:\n" + bad.join("\n") +
+            "\n\nThe calculation would diverge. Reduce Delta TT below the smallest limit.", "ERRO NO Delta TT", JOptionPane.ERROR_MESSAGE);
+        return false;
     }
 
     /**
@@ -513,6 +539,7 @@ export class CalculateTFrameParallel extends JFrame {
                 //7) GRAVA RESPOSTA EM DISCO DEPOIS DE RECEBER DE TODOS OS SLAVES
                 if (n % this.skip === 0) {
                     const values = FieldAtualT.SaveT(this.PATH, this.SimulName, n, this);
+                    this.checkFinite(values, n);
                     console.log("** CalculateTFrameParallel::CalculateTParallel():: GRAVOU ARQUIVO TEMPO = " + this.PATH + "/results/TN" + n);
                     const mam = FieldAtualT.SaveMinAvMaxT(this.PATH, this.SimulName, n, this, this.max, this.Tenv);
                     // Phoenix: the viewer also shows the rise since n = 0 (FDTD_T_slave's TRise)
@@ -552,6 +579,27 @@ export class CalculateTFrameParallel extends JFrame {
         this.CancelButton.setEnabled(false);
         this.setVisible(false);
         if (!this.errorJPVM && this.onFinished) this.onFinished(this.run);
+    }
+
+    /**
+     * Phoenix: a temperature that is not a number poisons TMinAvMax and the
+     * cubes around it, so the run stops at the first saved step that has one.
+     */
+    checkFinite(values, n) {
+        const M = this.M, ny = M.y(), nz = M.z(), d = M.getData();
+        let count = 0, first = -1;
+        const byMat = new Map();
+        for (let q = 0; q < values.length; q++) {
+            if (Number.isFinite(values[q])) continue;
+            if (first < 0) first = q;
+            count++;
+            byMat.set(d[q], (byMat.get(d[q]) || 0) + 1);
+        }
+        if (!count) return;
+        const name = (c) => { const m = this.Mat.find(mm => mm.code() === c); return m ? m.name() : "code " + c; };
+        const cube = [Math.floor(first / (ny * nz)), Math.floor(first / nz) % ny, first % nz];
+        throw new Error("T is not a number in " + count + " cubes at n = " + n + " (" +
+            [...byMat].map(([c, k]) => k + " " + name(c)).join(", ") + "; first at cube " + cube.join(",") + "). The run was stopped.");
     }
 
     /** Phoenix: registers this calculation in the viewer's ResultsStore. */

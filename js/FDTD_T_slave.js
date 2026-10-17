@@ -21,8 +21,13 @@
  *    slaves now exchange the planes next to their borders (material codes
  *    once, temperatures every step), the same way FDTD_slave does;
  *  - the dtT stability limits (Wang / Bernardi) were checked after const1
- *    had already been computed, so they never changed anything; they are now
- *    applied (with dtT <= 1s they are never reached for the head model);
+ *    had been computed, so they never changed anything, and in the wrong
+ *    units (C*3600 is in J: the limits came out in seconds and were compared
+ *    with dt in hours, 3600 times too lax).  They are now in hours, with the
+ *    three deltas, and CalculateTFrameParallel refuses a dtT above them;
+ *  - the wire of the antenna ("copper..."/"source...") keeps its initial
+ *    temperature: it is a perfect conductor in the EH calculation, and its
+ *    stability limit (~2 ms on the head grid) made it overflow to NaN;
  *  - neighbours outside the model are treated as air (2007 threw an
  *    ArrayIndexOutOfBoundsException if a tissue touched the model border);
  *  - per-material constants are computed once instead of for every cube.
@@ -199,7 +204,7 @@ export class FDTD_T_slave {
             const cellVolume = dx * dy * dz;
             const present = new Uint8Array(256);
             for (const c of ModeloLocal.getData()) present[c] = 1;
-            const C = FDTD_T_slave.materialTables(Mat, dx, dtT, hc, cellVolume, myself, present);
+            const C = FDTD_T_slave.materialTables(Mat, dx, dy, dz, dtT, hc, cellVolume, myself, present);
 
             //valores iniciais e constantes:
             const Cb = 1.06; //[W hr / (oCkg)] = Blood Specific Heat
@@ -261,6 +266,10 @@ export class FDTD_T_slave {
                             //testes para sair:
                             if (code === airCode) {
                                 T0[p] = Tenv;
+                                continue;
+                            }
+                            if (n > 0 && C.wire[code]) {
+                                T0[p] = T1[p];   // Phoenix: the antenna keeps its initial temperature
                                 continue;
                             }
                             if (n === 0) {
@@ -427,12 +436,12 @@ export class FDTD_T_slave {
      * Phoenix: thermal constants per material code, including the dtT
      * checks of 2007 (TmaxW = Wang, TmaxB = Bernardi).
      */
-    static materialTables(Mat, dx, dtT, hc, cellVolume, myself, present) {
+    static materialTables(Mat, dx, dy, dz, dtT, hc, cellVolume, myself, present) {
         const N = 256;
         const C = {
             K: new Float64Array(N), Bf: new Float64Array(N), Hm: new Float64Array(N),
             E: new Float64Array(N), kEvap: new Float64Array(N), const1: new Float64Array(N),
-            density: new Float64Array(N), sigma: new Float64Array(N),
+            density: new Float64Array(N), sigma: new Float64Array(N), wire: new Uint8Array(N),
         };
         for (let mm = 0; mm < Mat.length; mm++) {
             const mat = Mat[mm];
@@ -447,23 +456,43 @@ export class FDTD_T_slave {
             C.density[code] = density;
             // 2008: double sigma = mat.si(1);  (Phoenix: index 0 when the model has one frequency)
             C.sigma[code] = mat.si(Math.min(1, mat.nfreq() - 1));
+            C.wire[code] = FDTD_T_slave.isWire(mat) ? 1 : 0;
 
-            let dtThour = dtT / (60 * 60); //converte dt para horas
+            const dtThour = dtT / (60 * 60); //converte dt para horas
             const mass = cellVolume * density;
-            //Testa o valor de dtT
-            const TmaxW = (2 * density * Cm * 3600 * dx * dx) / (12 * K + Bf * dx * dx);
-            const TmaxB = 1 / (8 * K / (Cm * 3600 * density * dx * dx) + 8 * hc / (Cm * 3600 * density * dx) + Bf / (Cm * 3600 * density));
-            if (dtThour > TmaxW) {
-                dtThour = TmaxW;
-                PvmUtil.logError(myself, "   DELTA T (" + dtThour + ") HIGHER THAN THE MAXIMUM ALLOWED, ALTERED TO  " + TmaxW + " (" + mat.name() + ")", null);
+            //Testa o valor de dtT  (Phoenix: in hours, see stabilityLimits).  As in 2010 the
+            //result is only logged; the master refuses a dtT above Wang's limit before starting.
+            //(Changing dtThour of one material, as the 2007 code meant to, would slow its clock.)
+            const [TmaxW, TmaxB] = FDTD_T_slave.stabilityLimits(mat, dx, dy, dz, hc);
+            if (!C.wire[code] && dtThour > TmaxW) {
+                PvmUtil.logError(myself, "   DELTA T (" + dtThour + ") HIGHER THAN THE MAXIMUM ALLOWED " + TmaxW + " (" + mat.name() + ")", null);
             }
-            if (dtThour > TmaxB) {
-                dtThour = TmaxB / 2;
-                PvmUtil.logError(myself, " Delta Wang = " + TmaxW + "      Delta Bernardi = " + TmaxB + "   DELTA T ALTERED TO: " + dtThour + " (" + mat.name() + ")", null);
+            if (!C.wire[code] && dtThour > TmaxB) {
+                PvmUtil.logError(myself, " Delta Wang = " + TmaxW + "      Delta Bernardi = " + TmaxB + "   DELTA T = " + dtThour + " (" + mat.name() + ")", null);
             }
             C.const1[code] = dtThour / (Cm * mass);
         }
         return C;
+    }
+
+    /** Phoenix: the wire of the antenna, a perfect conductor in the EH calculation. */
+    static isWire(mat) {
+        const name = mat.name().toLowerCase();
+        return name.startsWith("copper") || name.startsWith("source");
+    }
+
+    /**
+     * The stability limits of the explicit scheme for one material, in hours
+     * (TmaxW = Wang, TmaxB = Bernardi).  2007 wrote them with C*3600, i.e. in
+     * seconds, and compared them with dt in hours.  Phoenix: in hours, and
+     * the 12/dx^2 of equal cubes becomes 4*(1/dx^2+1/dy^2+1/dz^2).
+     */
+    static stabilityLimits(mat, dx, dy, dz, hc) {
+        const Cm = mat.C(), K = mat.K(), Bf = mat.Bf(), density = mat.density();
+        const inv2 = 1 / (dx * dx) + 1 / (dy * dy) + 1 / (dz * dz);
+        const TmaxW = (2 * density * Cm) / (4 * K * inv2 + Bf);
+        const TmaxB = 1 / (8 * K * inv2 / (3 * Cm * density) + 8 * hc / (Cm * density * Math.min(dx, dy, dz)) + Bf / (Cm * density));
+        return [TmaxW, TmaxB];
     }
 
     /**
