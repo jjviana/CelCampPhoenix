@@ -656,7 +656,10 @@ export class CalculateEHFrameParallel extends JFrame {
         const wire = new Uint8Array(256);
         for (const m of this.Mat) if (/^(copper|source)/i.test(m.name())) wire[m.code()] = 1;
         for (let q = 0; q < e2.length; q++) if (wire[this.run.codes[q]]) e2[q] = 0;
+        const was = ResultsDisk.enabled;
+        ResultsDisk.enabled = true;   // always written, whatever "Write result files" says
         ResultsDisk.writeMatrix(name, e2, E2.tx, E2.ty * E2.tz);
+        ResultsDisk.enabled = was;
         this.E2file = name.replace(/^\//, "");
         const sar = new Float32Array(e2.length);
         const sigma = new Float64Array(256), dens = new Float64Array(256), names = [];

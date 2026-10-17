@@ -54,11 +54,15 @@ If N comes first there is a warning and no E&sup2; file.</li>
 <p class="formula">C&middot;m&middot;dT/dt = V&middot;[ &nabla;&middot;(K&nabla;T) + &rho;&middot;hm + &sigma;E&sup2;/2 + bf&middot;Cb&middot;(Tblood &minus; T) ] &minus; radiation &minus; convection &minus; evaporation</p>
 <p>Tenv, hc, Tblood, Ttissues, N, DeltaTT and Save each come from the model file; <b>Tinit</b> reads the initial temperature of every cube
 from a file (for instance the last <code>TN&lt;n&gt;</code> file of a previous run, as in the 2007 "Situacao 1, 2, 3" studies).
-This menu runs without the field (E&sup2; = 0). Results: <code>results/TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</p>
+This menu runs without the field (E&sup2; = 0). With <b>Run until steady state and save it as Tinit</b> (the default) it stops when the temperatures
+stop changing (change over a window below 1&nbsp;% of the change since the start, twice in a row) and saves them as <code>results/&lt;model&gt;_Tinit</code>,
+the starting point of SAR to Temperature. Results: <code>results/TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</p>
 <p>The steel cube model is the April/2007 validation: Tenv = 90, hc = 115, Ttissues = 450 (then with radiation off; since 2008 radiation is always on).</p>`,
     "SAR to Temperature (SAR->T)": `<h2>Calculate &rarr; SAR to Temperature</h2><p>Added in October 2008: asks for a file with E&sup2; for every cube
 (x outermost, z fastest) and runs the temperature calculation with the heat of the field, hem = &sigma;&middot;E&sup2;/2
-(SAR = &sigma;E&sup2;/2&rho;). An EH run that reaches the steady state writes that file to <code>results/</code>.</p>`,
+(SAR = &sigma;E&sup2;/2&rho;). An EH run that reaches the steady state writes that file to <code>results/</code>.</p>
+<p>The run always starts from the thermal steady state of the model without SAR, <code>results/&lt;model&gt;_Tinit</code>. When that file does not exist
+yet (or was made for another Tenv, Tblood or hc) it is calculated first, then reused by every later run.</p>`,
     "Place Dipole Antenna": `<h2>Tools &rarr; Place Dipole Antenna</h2><p>Writes a dipole into the open model: a wire of copper cubes along an axis,
 with a gap cube of air in the middle and a hard E source in the gap; the sources of the model are replaced by it.
 <b>Beside the head</b> proposes a half-wave dipole parallel to the longest side of the model, 1 cm from its surface
@@ -97,18 +101,35 @@ To see it, choose <b>SAR</b> or <b>E&sup2;</b> in the second drop-down of the <b
 (if you close it, <b>View &rarr; Field Viewer</b> opens it again).</li>
 <li><b>Temperature with the SAR.</b> <b>Calculate &rarr; SAR to Temperature (SAR-&gt;T)</b>
   <ul><li>Choose <code>results/John3Doe_v1_0_redux_E2_1.8E9Hz</code> in the file list.</li>
-  <li>The T window opens with the values of the model file: N = 10001 steps of 1 s, Tenv = 25, Tblood = Ttissues = 36.8, hc = 2.7.</li>
-  <li>Press <b>Start</b>. At the end the Field Viewer shows <b>T</b> and <b>T rise since n = 0</b>, with the TMinAvMax curves under the image.</li></ul></li>
+  <li>The T window opens with the values of the model file: N = 10001 steps of 1 s for the SAR run, Tenv = 25, Tblood = 36.8, hc = 2.7.</li>
+  <li>Its <b>Tinit</b> line says where the run will start from. That is always the thermal steady state of the head <i>without</i> the phone,
+  saved in <code>results/John3Doe_v1_0_redux_Tinit</code>.</li>
+  <li>Press <b>Start</b>.
+    <ul><li>If that file does not exist yet, or was made for another Tenv, Tblood or hc, the run first calculates it.
+    It runs without SAR from Ttissues until the change of T over 600 steps is below 1&nbsp;% of its change since the start, at 2 checks in a row.
+    The status line shows that percentage. It saves the file and then runs the SAR heating from it.</li>
+    <li>If the file exists, the SAR run starts from it at once.</li></ul></li>
+  <li>At the end the Field Viewer shows <b>T</b> and <b>T rise since n = 0</b>, which is the rise caused by the phone, with the TMinAvMax curves under the image.</li></ul></li>
 </ol>
+<p><b>The Tinit file:</b></p>
+<ul>
+<li><b>Calculated once, then reused.</b> It is calculated once per model: one for the full head (<code>John3Doe_v1_0_Tinit</code>), one for the Redux
+(<code>John3Doe_v1_0_redux_Tinit</code>). It stays in <code>results/</code> across sessions, and every later SAR run of that model reuses it.
+It does not depend on the dipole, which is not part of the thermal calculation.</li>
+<li><b>Calculating it in advance.</b> <b>Calculate &rarr; Temperature (T)</b> with <b>Run until steady state and save it as Tinit</b> ticked (the default) also writes it.</li>
+<li><b>Settings.</b> The window (600 steps), the tolerance (1&nbsp;%) and the maximum (36001 steps = 10 h) are in the T window.
+If the maximum comes first, there is a warning, no Tinit and no SAR run.</li>
+<li><b>How steady is 1&nbsp;%?</b> On the Redux head, a Tinit made at 1&nbsp;% (80 min of simulated time) still drifts by up to 0.03&nbsp;&deg;C
+in the next 30 min without any phone. That is more than the rise caused by a 1&nbsp;V dipole (0.008&nbsp;&deg;C on the full head).
+At 0.1&nbsp;% the drift is 0.004&nbsp;&deg;C (130 min); at 0.01&nbsp;% it is 0.0003&nbsp;&deg;C (190 min, about 3 minutes of calculation).
+For the rise of a phone use 0.01&nbsp;%. A Tinit made with a looser tolerance than the one in the window is calculated again.</li>
+<li><b>Deleting it.</b> <b>View &rarr; Results Folder &rarr; Delete all</b> also deletes the Tinit files; they are then calculated again.</li>
+<li><b>Another starting point.</b> The <b>Tinit</b> button of the T window still lets you choose another file instead.</li>
+</ul>
 <p><b>Things that break the sequence:</b></p>
 <ul>
 <li><b>Same session.</b> Do steps 2 to 6 without reopening the model. Reopening it goes back to full resolution without the dipole,
 and the reduced E&sup2; file then no longer matches the grid.</li>
-<li><b>Baseline (optional, as in 2007).</b> The head drifts by a few tenths of a degree from a uniform 36.8&nbsp;&deg;C even without the phone.
-To start from its own equilibrium:
-  <ol><li>Before step 6, run <b>Calculate &rarr; Temperature (T)</b> (no SAR).</li>
-  <li>In step 6, press <b>Tinit</b> and choose its last <code>results/TN&hellip;</code> file.</li>
-  <li>Download the baseline files first if you want to keep them: the T runs overwrite <code>TN&lt;n&gt;</code> and <code>TMinAvMax.txt</code>.</li></ol></li>
 </ul>`,
     "About this port": `<h2>CelCamp Phoenix</h2><p>CelCampJava v1.0 (Copacabana, 2004&ndash;2010) ported to JavaScript in 2026 from the version of 27 May 2010, keeping the classes,
 methods and the master/slave protocol of the original. The changes are listed in PORTING.md.</p>`,

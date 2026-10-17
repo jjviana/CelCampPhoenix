@@ -31,7 +31,7 @@ Then, as in 2006: **File → New**, pick a model, and use the **Calculate** menu
 1. **File → New → John3Doe_v1_0** (the head).
 2. **Tools → Place Dipole Antenna → Place**: a half-wave copper dipole at 1.8 GHz beside the ear (new in the port; in 2010 the dipole was drawn into the model files).
 3. **Calculate → Eletromagnetic Fields (EH) → Start**, with **Run until steady state** on. The window shows, at every step, how much the last period differs from the one before. When that stays below the tolerance for 2 periods, the run stops and writes |E| every `reduzN` steps, the E² of the last period (`results/<name>_E2_<f>Hz`) and the SAR. `N` is then only the maximum.
-4. **Calculate → SAR to Temperature**: choose that E² file; the bioheat equation now includes the heat of the field (σE²/2).
+4. **Calculate → SAR to Temperature**: choose that E² file. The run starts from the thermal steady state of the head without the phone (`results/<model>_Tinit`). It calculates that state first if it doesn't exist yet, and reuses it afterwards. Then the bioheat equation includes the heat of the field (σE²/2).
 5. **View → Field Viewer** (it opens by itself at the end of each run, and again from this menu if you close it): |E|, E², SAR, T and the temperature rise.
 
 ### Bundled models (`models/`)

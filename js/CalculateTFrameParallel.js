@@ -10,6 +10,13 @@
  * (slaves: FDTD_T_slave).  Since 2008 it receives the E^2 of the
  * electromagnetic calculation ("SAR") and the thermal parameters of the
  * .3dm file (dtt, NT, reduzNT, Tenv, Tblood, Ttissues, hc).
+ *
+ * Phoenix: TINIT.  "Run until steady state" runs without SAR until the
+ * temperatures stop changing and saves them as results/<model>_Tinit (plus
+ * a .info with the grid and the conditions).  SAR -> T always starts from
+ * that file: it is computed first when it does not exist yet or was made
+ * for other conditions, and reused afterwards (one file per model, so one
+ * for the full head and one for the Redux).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -24,6 +31,8 @@ import { InputFileChooser } from './InputFileChooser.js';
 import { FDTD_T_slave } from './FDTD_T_slave.js';
 
 const TAG_ACK = 905; // Phoenix: see FDTD_T_slave
+const TAG_STEADY = 99001;
+const TAG_VERDICT = 99002;
 
 export class CalculateTFrameParallel extends JFrame {
 
@@ -64,6 +73,8 @@ export class CalculateTFrameParallel extends JFrame {
         this.SARName = null;       // Phoenix: shown in the window
         this.Tinit = null;
         this.TinitWasRead = false;
+        this.TinitSource = null;   // Phoenix: 'manual' (Tinit button) or the steady-state file used
+        this.steady = null;        // Phoenix: {W, tol, log: [{n, delta}], reached, n}
         this.num_data = 0;
         this.jpvm = null;
         this.tids = null;
@@ -94,6 +105,13 @@ export class CalculateTFrameParallel extends JFrame {
     /** Phoenix: shows which E^2 ("SAR") file feeds the calculation. */
     setSARName(name) {
         this.SARName = name;
+        // Phoenix: SAR -> T always starts from the thermal steady state (TINIT)
+        if (this.SteadyStateCheckBox) {
+            this.SteadyStateCheckBox.setSelected(!name);
+            this.SteadyStateCheckBox.setVisible(!name);
+            this.TinitTitle.setVisible(!!name);
+        }
+        this.showTinitPlan();
         let max = 0;
         for (const v of this.SAR.getData()) if (v > max) max = v;
         this.SARLabel.setText(name ? "E² = " + name + "  (max " + max.toPrecision(3) + " V²/m²)" : "E² = 0 (no SAR file: Calculate → SAR to Temperature)");
@@ -112,6 +130,12 @@ export class CalculateTFrameParallel extends JFrame {
         this.LoadTinitFileButton = new JButton("Tinit", () => this.LoadTinitFileButtonMouseClicked());
         this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a TN file of a previous run).");
         this.TinitLabel = new JLabel("", "jnote");
+        this.SteadyStateCheckBox = new JCheckBox("Run until steady state and save it as Tinit", true);
+        this.SteadyStateCheckBox.setToolTipText("Without SAR: stops when T changes by less than the tolerance over a window, compared with its change since the start, at 2 checks in a row; then writes results/<model>_Tinit, used by SAR to Temperature.");
+        this.ToleranceText = new JTextField("1", 4);
+        this.WindowText = new JTextField("600", 5);
+        this.TinitMaxText = new JTextField("36001", 7);
+        this.TinitTitle = new JLabel("Tinit = thermal steady state without SAR (calculated first when not saved yet):", "jnote");
         this.SARLabel = new JLabel("", "jnote");
         this.SkipText = new JTextField("1000", 6);
         this.WriteFilesCheckBox = new JCheckBox("Write result files to results/", true);
@@ -138,6 +162,11 @@ export class CalculateTFrameParallel extends JFrame {
                 row(this.TinitLabel),
                 row(this.SARLabel)),
             panel(null,
+                row(this.SteadyStateCheckBox),
+                row(this.TinitTitle),
+                row("Steady: change over ", this.WindowText, " steps < ", this.ToleranceText, "% of the change since n = 0, twice"),
+                row("At most ", this.TinitMaxText, " steps for the steady state")),
+            panel(null,
                 row("Save each ", this.SkipText, " timesteps"),
                 row(this.WriteFilesCheckBox),
                 row(this.MemLabel)),
@@ -150,6 +179,7 @@ export class CalculateTFrameParallel extends JFrame {
         const file = await InputFileChooser.chooseText("Choose the initial temperature file (Tinit)", /tinit|\/TN\d+$/i);
         if (file) {
             this.TinitWasRead = this.ReadTinitFile(file.text, file.name);
+            this.TinitSource = this.TinitWasRead ? 'manual' : null;
             if (this.TinitWasRead) {
                 const texto = "Leu o Arquivo de T inicial!";
                 console.log("*** CalculateTFrameParallel::LoadTinitFileButtonMouseClicked():: " + texto);
@@ -231,8 +261,117 @@ export class CalculateTFrameParallel extends JFrame {
             return;
         }
         console.log("*** Calculando o aumento de Temperatura (T) por " + this.max + " instantes de tempo com DeltaTT=" + this.dtT + "s ...");
-        this.tTcalc = this.CalculateTParallel();
+        this.tTcalc = this.RunPhases();
         return this.tTcalc;
+    }
+
+    /* ------------------------- Phoenix: TINIT -------------------------- */
+
+    tinitPath() { return this.PATH + "/results/" + this.SimulName + "_Tinit"; }
+
+    /** The conditions a steady state depends on. */
+    tinitConditions() {
+        const M = this.M;
+        return { dims: [M.x(), M.y(), M.z()], deltas: [this.dx, this.dy, this.dz], Tenv: this.Tenv, Tblood: this.Tblood, hc: this.Henv };
+    }
+
+    /** Reads results/<model>_Tinit when it was made for this grid and these conditions. */
+    async findTinit() {
+        let info;
+        try {
+            const want = this.tinitPath().replace(/^\//, "");
+            const files = (await ResultsDisk.list()).map(f => f.path);
+            if (!files.includes(want) || !files.includes(want + ".info")) return null;
+            info = JSON.parse(await ResultsDisk.readText(this.tinitPath() + ".info"));
+        } catch (e) { return null; }
+        const c = this.tinitConditions();
+        const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        if (!same(info.dims, c.dims) || !same(info.deltas, c.deltas) || info.Tenv !== c.Tenv || info.Tblood !== c.Tblood || info.hc !== c.hc) return null;
+        // made with a looser tolerance than the one asked for now: calculate it again
+        const tol = Number(this.ToleranceText.getText()) / 100;
+        if (tol > 0 && info.tolerance > tol * (1 + 1e-9)) return null;
+        let text;
+        try { text = await ResultsDisk.readText(this.tinitPath()); } catch (e) { return null; }
+        return { info, text };
+    }
+
+    saveTinit(values, n) {
+        const was = ResultsDisk.enabled;
+        ResultsDisk.enabled = true;   // always written, whatever "Write result files" says
+        const M = this.M;
+        ResultsDisk.writeMatrix(this.tinitPath(), Float64Array.from(values), M.x(), M.y() * M.z());
+        const info = Object.assign(this.tinitConditions(), { model: this.SimulName, n, minutes: n * this.dtT / 60, tolerance: this.steady.tol, window: this.steady.W, date: new Date().toISOString() });
+        ResultsDisk.writeText(this.tinitPath() + ".info", JSON.stringify(info, null, 1) + "\n");
+        ResultsDisk.enabled = was;
+        this.TinitInfo = info;
+    }
+
+    /** Tells, in the window, which Tinit the run will start from. */
+    async showTinitPlan() {
+        if (!this.TinitLabel || !this.SARName) return;
+        if (this.TinitSource === 'manual') return;
+        const found = await this.findTinit();
+        this.TinitLabel.setText(found
+            ? "Tinit = " + this.tinitPath().replace(/^\//, "") + " (steady state reached after " + found.info.minutes.toFixed(0) + " min, " + found.info.date.slice(0, 10) + ")"
+            : "Tinit: not calculated yet for this model and these conditions. Start calculates it first (steady state without SAR), then the SAR run.");
+    }
+
+    /**
+     * Start: in SAR -> T, first the steady state without SAR (unless a Tinit
+     * file for this grid and these conditions exists, or one was chosen with
+     * the Tinit button), then the SAR run from it.  In Temperature (T), one
+     * run: until the steady state (saved as Tinit) or the fixed N of 2010.
+     */
+    async RunPhases() {
+        const tol = Number(this.ToleranceText.getText()) / 100;
+        const W = parseInt(this.WindowText.getText(), 10);
+        const tmax = parseInt(this.TinitMaxText.getText(), 10);
+        const back = () => { this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false); };
+        if ((this.SARName || this.SteadyStateCheckBox.isSelected()) && (!(tol > 0) || !(W > 0) || !(tmax > 2 * W))) {
+            await JOptionPane.showMessageDialog(this, "Tolerancia, janela ou maximo invalido!", "Steady state", JOptionPane.ERROR_MESSAGE);
+            return back();
+        }
+        // a steady-state run: at most tmax steps
+        const steadyRun = async (opts) => {
+            const N = this.max;
+            this.max = tmax;
+            this.setMaxMin(0, tmax);
+            this.steady = { W, tol, log: [], reached: false, n: -1 };
+            const r = await this.CalculateTParallel(Object.assign({ W }, opts));
+            this.max = N;
+            this.setMaxMin(0, N);
+            this.setBar(0);
+            return r;
+        };
+        if (!this.SARName) {
+            if (!this.SteadyStateCheckBox.isSelected()) return this.CalculateTParallel({});
+            return steadyRun({});
+        }
+        if (this.TinitSource !== 'manual') {
+            const found = await this.findTinit();
+            if (found && this.ReadTinitFile(found.text, this.tinitPath())) {
+                this.TinitWasRead = true;
+                this.TinitSource = this.tinitPath();
+                this.TinitInfo = found.info;
+            } else {
+                // phase 1: the thermal steady state, without SAR
+                this.TinitWasRead = false;
+                const sar = this.SAR;
+                this.SAR = new Field(this.M.x(), this.M.y(), this.M.z(), "SAR", 0);
+                const phase = await steadyRun({ quiet: true, label: "Tinit: " });
+                this.SAR = sar;
+                if (!phase || !phase.reached) return;   // (the warning or the error was shown)
+                this.ReadTinitFile(await ResultsDisk.readText(this.tinitPath()), this.tinitPath());
+                this.TinitWasRead = true;
+                this.TinitSource = this.tinitPath();
+                this.StartButton.setEnabled(false);
+                this.CancelButton.setEnabled(true);
+            }
+            this.TinitLabel.setText("Tinit = " + this.TinitSource.replace(/^\//, "") + " (steady state)");
+        }
+        // phase 2: the heating of the field, from Tinit
+        this.steady = null;
+        return this.CalculateTParallel({});
     }
 
     /** FUNCOES UTEIS **/
@@ -374,7 +513,9 @@ export class CalculateTFrameParallel extends JFrame {
         ResultsDisk.writeText(nomeArq, parts.join(""));
     }
 
-    async CalculateTParallel() {
+    async CalculateTParallel(opts = {}) {
+        const W = opts.W || 0;          // Phoenix: STEADY window (0 = the fixed N of 2010)
+        let reached = false;
         const NPROC = CalculateTFrameParallel.NPROC;
         let tagAtual = 12344;
         const comecou = new Date();
@@ -447,6 +588,7 @@ export class CalculateTFrameParallel extends JFrame {
                     buf.pack(0.0);
                 }
                 buf.pack(Xi); // Phoenix
+                buf.pack(W);  // Phoenix
                 jpvm.pvm_send(buf, tids[i], 22);
             }
             //confirma o recebimento do tamanho e dos deltas:
@@ -502,11 +644,12 @@ export class CalculateTFrameParallel extends JFrame {
             await PvmUtil.printMessageFromSlaves(jpvm, tids, tagAtual, true);
             tagAtual++;
 
-            this.run = this.newResultsRun();
+            this.run = this.newResultsRun(W ? " → Tinit" : "");
             const vI = 0.0;
             const FieldAtualT = new Field(ModelX, ModelY, ModelZ, "EH", vI);
             const t0 = performance.now();
             let T0 = null;
+            let below = 0;
             for (let cont = 0; cont < this.max; cont++) {
                 let n = 0;
                 for (let i = 0; i < NPROC; i++) {
@@ -516,9 +659,29 @@ export class CalculateTFrameParallel extends JFrame {
                     const tagN = 197 + cont;
                     const message = await jpvm.pvm_recv(tids[i], tagN);
                     n = message.buffer.upkint();
+                }
+                // Phoenix: STEADY - change over the last window against the change since n = 0
+                let stop = false;
+                if (W && cont > 0 && cont % W === 0) {
+                    let num = 0, den = 0;
+                    for (let i = 0; i < NPROC; i++) {
+                        const b = (await jpvm.pvm_recv(tids[i], TAG_STEADY)).buffer;
+                        b.upkint(); num += b.upkdouble(); den += b.upkdouble();
+                    }
+                    const delta = den > 0 ? num / den : 0;
+                    this.steady.log.push({ n: cont, delta });
+                    below = delta < this.steady.tol ? below + 1 : 0;
+                    stop = below >= 2;
+                    for (let i = 0; i < NPROC; i++) {
+                        const vb = new jpvmBuffer();
+                        vb.pack(stop ? 0 : 1);
+                        jpvm.pvm_send(vb, tids[i], TAG_VERDICT);
+                    }
+                }
+                for (let i = 0; i < NPROC; i++) {
                     //5) RECEBE OS ARQUIVOS DE CADA SLAVE
-                    // APENAS QUANDO FOR GRAVAR: em 10/4/2007
-                    if (n % this.skip === 0) {
+                    // APENAS QUANDO FOR GRAVAR: em 10/4/2007  (Phoenix: and at the steady state)
+                    if (n % this.skip === 0 || stop) {
                         const tagResposta = 900;
                         await PvmUtil.printMessageFromSlave(jpvm, tids[i], (902), false);
                         const Partial = await PvmUtil.receivePartialField(jpvm, tids[i], tagResposta);
@@ -532,12 +695,14 @@ export class CalculateTFrameParallel extends JFrame {
                 }
                 if (this.barValue() < (n + 1))
                     this.setBar(n + 1);
-                if (cont % 10 === 0 || cont === this.max - 1) {
+                if (cont % 10 === 0 || cont === this.max - 1 || stop) {
                     const elapsed = (performance.now() - t0) / 1000;
-                    this.StatusLabel.setText("n = " + (n + 1) + " / " + this.max + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(1) + " steps/s, simulated " + ((n + 1) * this.dtT / 60).toFixed(1) + " min)");
+                    let status = (opts.label || "") + "n = " + (n + 1) + " / " + this.max + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(1) + " steps/s, simulated " + ((n + 1) * this.dtT / 60).toFixed(1) + " min)";
+                    if (W) status += "\n" + this.steadyStatus(below);
+                    this.StatusLabel.setText(status);
                 }
                 //7) GRAVA RESPOSTA EM DISCO DEPOIS DE RECEBER DE TODOS OS SLAVES
-                if (n % this.skip === 0) {
+                if (n % this.skip === 0 || stop) {
                     const values = FieldAtualT.SaveT(this.PATH, this.SimulName, n, this);
                     this.checkFinite(values, n);
                     console.log("** CalculateTFrameParallel::CalculateTParallel():: GRAVOU ARQUIVO TEMPO = " + this.PATH + "/results/TN" + n);
@@ -548,6 +713,14 @@ export class CalculateTFrameParallel extends JFrame {
                     for (let q = 0; q < rise.length; q++) rise[q] = values[q] - T0[q];
                     ResultsStore.addSnapshot(this.run, n, { T: values, TRise: rise });
                     ResultsStore.addSeries(this.run, n, mam);
+                }
+                if (stop) {
+                    reached = true;
+                    this.steady.reached = true;
+                    this.steady.n = n;
+                    this.saveTinit(FieldAtualT.getData(), n);
+                    this.setBar(this.max);
+                    break;
                 }
             }
             jpvm.pvm_exit();
@@ -571,7 +744,23 @@ export class CalculateTFrameParallel extends JFrame {
             console.log("*** Tempo de simulacao = " + (tempoTotal / 1000.0) + "s = " + tempoM + "min e " + tempoS + "s.");
             await ResultsDisk.flush();
             ResultsStore.finish(this.run, { seconds: tempoTotal / 1000 });
-            const texto = "Fim da Simulacao!! Tempo = " + (tempoTotal / 1000.0) + "s.";
+            if (W && !reached) {
+                const st = this.steady, last = st.log.length ? this.pct(st.log[st.log.length - 1].delta) : "not measured";
+                const t = "Thermal steady state NOT reached in " + this.max + " steps (" + (this.max * this.dtT / 60).toFixed(0) + " min).\n" +
+                    "Last change over " + st.W + " steps: " + last + " of the change since the start (tolerance " + this.pct(st.tol) + ").\n\n" +
+                    "No Tinit file was written" + (opts.quiet ? " and the SAR run did not start" : "") + ": increase N and run again.";
+                console.log(t);
+                await JOptionPane.showMessageDialog(this, t, "Steady state", JOptionPane.WARNING_MESSAGE);
+                this.StartButton.setEnabled(true);
+                this.CancelButton.setEnabled(false);
+                if (opts.quiet && this.onFinished) this.onFinished(this.run);
+                return { reached: false };
+            }
+            if (opts.quiet) return { reached };
+            let texto = "Fim da Simulacao!! Tempo = " + (tempoTotal / 1000.0) + "s.";
+            if (W) texto += "\n\nThermal steady state at n = " + this.steady.n + " (" + (this.steady.n * this.dtT / 60).toFixed(0) + " min): the last " + this.steady.W +
+                " steps changed T by " + this.pct(this.steady.log[this.steady.log.length - 1].delta) + " of its change since the start.\nSaved as Tinit: " + this.tinitPath().replace(/^\//, "");
+            else if (this.TinitWasRead) texto += "\n\nStarted from " + (this.TinitSource || "Tinit").replace(/^\//, "") + ".";
             await JOptionPane.showMessageDialog(this, texto, "End of Simulation", JOptionPane.INFORMATION_MESSAGE);
             this.TCalculated = true;
         }
@@ -579,6 +768,18 @@ export class CalculateTFrameParallel extends JFrame {
         this.CancelButton.setEnabled(false);
         this.setVisible(false);
         if (!this.errorJPVM && this.onFinished) this.onFinished(this.run);
+        return this.errorJPVM ? null : { reached };
+    }
+
+    pct(x) { return isFinite(x) ? (100 * x).toPrecision(3) + " %" : "∞"; }
+
+    /** Phoenix: the STEADY line of the status. */
+    steadyStatus(below) {
+        const st = this.steady;
+        if (!st.log.length) return "Steady state: first check at n = " + st.W;
+        const d = st.log[st.log.length - 1];
+        return "Change over the last " + st.W + " steps: " + this.pct(d.delta) + " of the change since the start" +
+            (below ? " — below " + this.pct(st.tol) + " at " + below + " of 2 checks" : "");
     }
 
     /**
@@ -603,10 +804,10 @@ export class CalculateTFrameParallel extends JFrame {
     }
 
     /** Phoenix: registers this calculation in the viewer's ResultsStore. */
-    newResultsRun() {
+    newResultsRun(suffix) {
         const M = this.M;
         return ResultsStore.newRun({
-            kind: 'T', name: this.SimulName + " (T" + (this.SARName ? ", SAR" : "") + ")", dims: [M.x(), M.y(), M.z()],
+            kind: 'T', name: this.SimulName + " (T" + (this.SARName && !suffix ? ", SAR" : "") + (suffix || "") + ")", dims: [M.x(), M.y(), M.z()],
             deltas: [this.dx, this.dy, this.dz], codes: M.getData(),
             materials: this.Mat.map(m => ({ code: m.code(), name: m.name(), color: [m.color().getRed(), m.color().getGreen(), m.color().getBlue()] })),
             info: { dtT: this.dtT, N: this.max, skip: this.skip, NPROC: CalculateTFrameParallel.NPROC, Tenv: this.Tenv, hc: this.Henv, Tblood: this.Tblood, Ttissues: this.Ttissues, SAR: this.SARName },

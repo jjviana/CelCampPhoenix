@@ -106,6 +106,11 @@ They exist only in the web version and live in `js/phoenix/` and the **View** an
   - The viewer shows E² and SAR = σE²/(2ρ). The end dialog gives the peak SAR, without the air and the wire.
   - With the box unchecked the run has the fixed `N` of 2010 and writes no E².
   - **NPROC.** Fields and E² stay bit-identical for any NPROC. The per-step difference is a sum over the slaves, so it can differ in the last bits.
+- **Tinit = the thermal steady state, always.** **SAR to Temperature** always starts from the steady state of the model without SAR, saved in `results/<model>_Tinit` (one file per model: the full head and its Redux have their own). A `.info` file records the grid, Tenv, Tblood, hc, the tolerance and the step.
+  - When there is no such file, or it was made for other conditions or with a looser tolerance, Start first runs without SAR until the steady state, saves it, then runs the SAR from it. Later runs reuse it, also in later sessions.
+  - **Steady** means: every `W` steps (600), the slaves send Σ|T − T(n−W)| and Σ|T − T(0)| over their tissue cubes (tags 99001/99002, like the EH). The run stops when the first is below the tolerance (1 %) of the second at 2 checks in a row. The maximum is its own field (36001 steps).
+  - **Temperature (T)** does the same with **Run until steady state and save it as Tinit** (on by default). Unticked, it is the fixed-N run of 2010. The Tinit button still lets you choose another file.
+  - On the Redux head, Tinit at 1 % takes 80 min of simulated time (78 s of calculation). It still drifts by up to 0.03 °C in the next 30 min. At 0.01 % it takes 190 min (176 s) and the drift is 0.0003 °C.
 - **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
 - **View → Results Folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
 - **View → Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.

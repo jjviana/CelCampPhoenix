@@ -30,7 +30,11 @@
  *    stability limit (~2 ms on the head grid) made it overflow to NaN;
  *  - neighbours outside the model are treated as air (2007 threw an
  *    ArrayIndexOutOfBoundsException if a tissue touched the model border);
- *  - per-material constants are computed once instead of for every cube.
+ *  - per-material constants are computed once instead of for every cube;
+ *  - STEADY: with W > 0, every W steps the slave sums |T - T(n-W)| and
+ *    |T - T(0)| over its tissue cubes and the master answers whether the
+ *    thermal steady state was reached (the run then stops; its last T is
+ *    the Tinit of SAR -> T).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -39,6 +43,8 @@ import { Model } from './Model.js';
 import { Field } from './Field.js';
 
 const TAG_ACK = 905;           // Phoenix: master -> slave "partial received"
+const TAG_STEADY = 99001;      // Phoenix: slave -> master, change of T over the last window
+const TAG_VERDICT = 99002;     // Phoenix: master -> slave after every window: 1 go on, 0 stop
 const MAX_UNACKED = 2;
 
 export class FDTD_T_slave {
@@ -116,6 +122,7 @@ export class FDTD_T_slave {
                 TinitWasRead = true;
             }
             const Xoffset = message.buffer.upkint(); // Phoenix (informative)
+            const W = message.buffer.upkint();       // Phoenix: steps between steady-state checks (0 = off)
             //confirma que recebeu o tamanho:
             texto = "SLAVE::Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ") em X = " + Xoffset;
             tagAtual++;
@@ -221,6 +228,7 @@ export class FDTD_T_slave {
             const model = ModeloLocal.getData();
             const w0 = plane, w1 = ModelZ;
             let unacked = 0;
+            let Tstart = null, Tlast = null;   // Phoenix: STEADY
 
             // 5) CALCULA O FD-TD
             tagAtual++;
@@ -407,10 +415,32 @@ export class FDTD_T_slave {
                  */
                 Field.RefreshT(0, ModelX, 0, ModelY, 0, ModelZ, T);
 
+                // Phoenix: STEADY - how much T changed over the last W steps,
+                // against how much it changed since n = 0 (tissues only)
+                let stop = false;
+                if (W > 0) {
+                    if (n === 0) { Tstart = Float64Array.from(T0); Tlast = Float64Array.from(T0); }
+                    else if (n % W === 0) {
+                        let num = 0, den = 0;
+                        for (let p = 0; p < T0.length; p++) {
+                            const code = model[p];
+                            if (code === airCode || C.wire[code]) continue;
+                            num += Math.abs(T0[p] - Tlast[p]);
+                            den += Math.abs(T0[p] - Tstart[p]);
+                        }
+                        Tlast.set(T0);
+                        const sb = new jpvmBuffer();
+                        sb.pack(n); sb.pack(num); sb.pack(den);
+                        jpvm.pvm_send(sb, parent, TAG_STEADY);
+                        const verdict = await jpvm.pvm_recv(parent, TAG_VERDICT);
+                        stop = verdict.buffer.upkint() === 0;
+                    }
+                }
+
                 // ENVIA AS RESPOSTAS PARA MASTER:
                 // -------------------------------
-                // Apenas a cada SKIP (10/04/2007)
-                if (n % skip === 0) {
+                // Apenas a cada SKIP (10/04/2007)  (Phoenix: and at the steady state)
+                if (n % skip === 0 || stop) {
                     if (unacked >= MAX_UNACKED) { await jpvm.pvm_recv(parent, TAG_ACK); unacked--; }
                     const tagResposta = 900;
                     //manda o Tatual
@@ -423,6 +453,7 @@ export class FDTD_T_slave {
                     unacked++;
                     print.println("N = " + n + " enviado para o master.");
                 }
+                if (stop) break;
             }
             // Exit from the parallel virtual machine
             jpvm.pvm_exit();
