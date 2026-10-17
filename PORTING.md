@@ -92,7 +92,15 @@ Each fix keeps the shape of the original code. The comment next to it shows what
 
 They exist only in the web version and live in `js/phoenix/` and the **Tools** menu:
 
-- **Record E² over the last period**, in the EH window. The slaves sum |E|² at each cube centre over the last period (`1/(f·dt)` steps) and send `2·mean`, the E² of the peak. The master writes it to `results/<name>_E2_<f>Hz`, in the format read by **SAR to Temperature**. In 2010 that file was read, but nothing in CelCampJava wrote it. The viewer also shows E² and SAR = σE²/(2ρ), and the end dialog gives the peak SAR, without the air and the wire.
+- **Run until steady state**, in the EH window (on by default). `N` becomes the maximum number of steps.
+  - **Every step**, the slaves send the sum of |E|² over their cubes, weighted by σ/(2ρ) of the tissues (so it follows the SAR; unweighted in a model without tissue). The master compares the average of the last period (`1/(f·dt)` steps) with the period before, and shows the difference in the window.
+  - **At the end of every period**, the slaves also compare the period averages cube by cube. The master answers each slave "go on" or "stop" (tags 99001/99002).
+  - **Steady state** is reached when the per-step difference has stayed below the tolerance (1 % by default) for 2 full periods and the cube-by-cube difference is below it too. The slaves then stop.
+  - **The E² file** comes only from a steady run: the slaves send `2·mean(|E|²)` of the last period, the E² of the peak. The master writes it to `results/<name>_E2_<f>Hz`, in the format read by **SAR to Temperature**. In 2010 that file was read, but nothing in CelCampJava wrote it.
+  - **If `N` is reached first**, a warning gives the last difference and no E² file is written.
+  - The viewer shows E² and SAR = σE²/(2ρ). The end dialog gives the peak SAR, without the air and the wire.
+  - With the box unchecked the run has the fixed `N` of 2010 and writes no E².
+  - **NPROC.** Fields and E² stay bit-identical for any NPROC. The per-step difference is a sum over the slaves, so it can differ in the last bits.
 - **Tools → Place Dipole Antenna**: writes a copper wire with a one-cube air gap and a hard E source in the gap. By default it is a half-wave dipole parallel to the longest side of the model, 1 cm from its surface. On the head that means vertical, beside the ear. A test checks the far-field pattern: E² broadside ≫ along the axis, and the 45° value about half of broadside.
 - **Results folder** (`ResultsDisk`, `ResultsFrame`): browse, download and delete `results/`.
 - **Field Viewer**: slices of the model, |E|, E², SAR, T and the T rise, a time slider, the TMinAvMax chart, and opening `.3df` files from `results/`. It replaces the MATLAB scripts.
@@ -106,7 +114,7 @@ They exist only in the web version and live in `js/phoenix/` and the **Tools** m
   - Only |E| at the cube centres goes to the master.
   - The two older time levels are copied only on the layers that Mur reads. 2010 copied the whole grid twice per step.
 
-  The full head (82 million points) needs about 2.3 GB and runs at about 0.2 s per step with 3 workers (2000 steps in 7.4 min).
+  The full head (82 million points) needs about 2.6 GB and runs at about 0.25 s per step with 3 workers. With a dipole beside the ear it reached steady state in 3233 steps (13.4 min).
 - **Flow control.** A slave waits for an acknowledgement (tag 905) when the master is more than two partial fields behind. TCP gave JPVM this back-pressure for free; `postMessage` does not.
 
 ## Not ported

@@ -41,10 +41,13 @@ N, DeltaT and Save each come from the <code>dt</code>, <code>N</code> and <code>
 <li><b>Save each</b>: files <code>results/EN&lt;n&gt;</code> (|E| at the centre of every cube, the average of its 4 parallel edges) every that many steps.</li>
 <li><b>NPROC</b>: number of slaves (Web Workers). The model is cut in slices along X, at least 2 cubes each.</li>
 <li><b>CCA</b>: absorbing boundary. Only Mur 1st order works (2nd order was left commented out; PML was never written).</li>
-<li><b>Record E&sup2;</b>: averages |E|&sup2; over the last period and writes <code>results/&lt;name&gt;_E2_&lt;f&gt;Hz</code>, the input of SAR to Temperature.</li>
+<li><b>Run until steady state</b>: N becomes the maximum. Every step the window shows how much the average of |E|&sup2; (weighted by the SAR of the tissues)
+over the last period differs from the period before. When that stays below the tolerance for 2 full periods, and the cubes agree one by one,
+the run stops and writes <code>results/&lt;name&gt;_E2_&lt;f&gt;Hz</code>, E&sup2; averaged over the last period, the input of SAR to Temperature.
+If N comes first there is a warning and no E&sup2; file.</li>
 <li><b>Sources</b>: the cube, field (E/H), axis and amplitude of every source. A source is a hard voltage source
 (Elsherbeni &amp; Demir 2009): E(n+1) = &minus;E(n) &minus; 2&middot;Max&middot;sin(&omega;t) on the 4 edges of its cube parallel to the axis.</li></ul>
-<p>The whole head (151&times;259&times;259 cubes) expands to 82 million points and needs about 2.3 GB.
+<p>The whole head (151&times;259&times;259 cubes) expands to 82 million points and needs about 2.6 GB.
 <b>Tools &rarr; Redux Model</b> halves the resolution. <b>Tools &rarr; Place Dipole Antenna</b> puts a half-wave dipole beside the head.</p>`,
     "Temperature (T)": `<h2>Calculate &rarr; Temperature (T)</h2>
 <p>Solves the bioheat equation (Gandhi 2001) on the cubes of the model, with time step DeltaTT (at most 1 s):</p>
@@ -55,7 +58,7 @@ This menu runs without the field (E&sup2; = 0). Results: <code>results/TN&lt;n&g
 <p>The steel cube model is the April/2007 validation: Tenv = 90, hc = 115, Ttissues = 450 (then with radiation off; since 2008 radiation is always on).</p>`,
     "SAR to Temperature (SAR->T)": `<h2>Calculate &rarr; SAR to Temperature</h2><p>Added in October 2008: asks for a file with E&sup2; for every cube
 (x outermost, z fastest) and runs the temperature calculation with the heat of the field, hem = &sigma;&middot;E&sup2;/2
-(SAR = &sigma;E&sup2;/2&rho;). An EH run with <b>Record E&sup2;</b> writes that file to <code>results/</code>.</p>`,
+(SAR = &sigma;E&sup2;/2&rho;). An EH run that reaches the steady state writes that file to <code>results/</code>.</p>`,
     "Place Dipole Antenna": `<h2>Tools &rarr; Place Dipole Antenna</h2><p>Writes a dipole into the open model: a wire of copper cubes along an axis,
 with a gap cube of air in the middle and a hard E source in the gap; the sources of the model are replaced by it.
 <b>Beside the head</b> proposes a half-wave dipole parallel to the longest side of the model, 1 cm from its surface

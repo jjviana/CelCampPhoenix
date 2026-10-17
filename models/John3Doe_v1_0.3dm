@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!-- "John Doe": a name used to represent a person in a hypothetical situation. (Compact Oxford English Dictionary) -->
 
-<MaterialModel name="John3Doe_v1_0" dimention="151,259,259" deltas="0.00186,0.00111,0.00111" frequency="900E6,1.8E9" dt="2.4E-12" N="2000" reduzN="100" dtt="1.0" NT="10001" reduzNT="1000" Tenv="25.0" Tblood="36.8" Ttissues="36.8" hc="2.7">
+<MaterialModel name="John3Doe_v1_0" dimention="151,259,259" deltas="0.00186,0.00111,0.00111" frequency="900E6,1.8E9" dt="2.4E-12" N="8000" reduzN="1000" dtt="1.0" NT="10001" reduzNT="1000" Tenv="25.0" Tblood="36.8" Ttissues="36.8" hc="2.7">
 <sources>
 <source type="puntual" field="E" axis="z" location="10,10,10" maxValue="1.0" unit="V/m" hard="true"></source>
 </sources>

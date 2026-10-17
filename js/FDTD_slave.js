@@ -34,7 +34,8 @@
  *  - only |E| at the cube centres goes to the master (the 2010 master wrote
  *    nothing else: EscreveH() was called with writeH = false), and the
  *    fields are kept in Float32Array: the head fits in a browser;
- *  - optionally the slave averages |E|^2 over the last period, for the
+ *  - optionally the run goes on until the steady state (see STEADY below)
+ *    and |E|^2 averaged over the last period goes to the master, for the
  *    SAR -> T calculation (2010 read that E^2 from a file made elsewhere);
  *  - material properties come from tables indexed by material code instead
  *    of a linear search for every point (same values).
@@ -48,6 +49,8 @@ import { Field } from './Field.js';
 const TAG_ACK = 905;           // Phoenix: master -> slave "partial received"
 const MAX_UNACKED = 2;
 const TAG_E2 = 950;            // Phoenix: slave -> master, mean E^2 per cube
+const TAG_STEADY = 99001;      // Phoenix: slave -> master, sums of |E|^2 of every step
+const TAG_VERDICT = 99002;     // Phoenix: master -> slave at the end of every period: 1 go on, 0 stop
 
 export class FDTD_slave {
 
@@ -128,7 +131,7 @@ export class FDTD_slave {
             const CCAorder = message.buffer.upkint();
             const Xoffset = message.buffer.upkint();   // Phoenix: global X of local i=0
             const GlobalX = message.buffer.upkint();   // Phoenix: size of the whole model
-            const nRecordE2 = message.buffer.upkint(); // Phoenix: steps of the E^2 average (0 = off)
+            const P = message.buffer.upkint();         // Phoenix: steps of one period, 0 = no steady state run (STEADY)
             //confirma que recebeu o tamanho:
             texto = "Recebeu Tamanho = (" + ModelX + "," + ModelY + "," + ModelZ + ") e Deltas = (" + dx + "," + dy + "," + dz + ")";
             tagAtual++;
@@ -220,9 +223,26 @@ export class FDTD_slave {
             }
             const axisIndex = "xyz".indexOf(axis.toLowerCase());
 
-            // Phoenix: |E|^2 at the cube centres, summed over the last nRecordE2 steps
+            /*
+             * Phoenix: STEADY.  Every step |E|^2 at the cube centres is summed
+             * over the slice (also weighted by sigma/2rho of the tissues, i.e.
+             * the SAR) and sent to the master, which compares the last period
+             * with the one before.  It is also summed per cube over each period
+             * (periods start at n = 0); at the end of a period the per-cube
+             * averages are compared with those of the previous period, and the
+             * master answers whether the steady state was reached.
+             */
             const cubesX = (X - 1) >> 1, cubesY = (Y - 1) >> 1, cubesZ = (Z - 1) >> 1;
-            const E2sum = nRecordE2 > 0 ? new Float64Array(cubesX * cubesY * cubesZ) : null;
+            const nCubes = cubesX * cubesY * cubesZ;
+            const E2cur = P > 0 ? new Float64Array(nCubes) : null;   // sum over the current period
+            const E2prev = P > 0 ? new Float64Array(nCubes) : null;  // average of the last finished period
+            let havePrev = false;
+            const cubeCodes = new Uint8Array(P > 0 ? nCubes : 0);
+            if (P > 0) {
+                let q = 0;
+                for (let i = 1; i < X; i += 2) for (let j = 1; j < Y; j += 2) for (let k = 1; k < Z; k += 2) cubeCodes[q++] = model[i * w0 + j * w1 + k];
+            }
+            let stop = false;
 
             let unacked = 0;
             let foundSourceLogged = false;
@@ -506,8 +526,35 @@ export class FDTD_slave {
                     E0.set(BorderLeft.subarray(B2, B2 + plane), 0); //SO COPIA A BORDA!!
                 }
 
-                // Phoenix: |E|^2 over the last period
-                if (E2sum && n >= nMax - nRecordE2) FDTD_slave.addE2(E0, X, Y, Z, E2sum);
+                // Phoenix: STEADY - |E|^2 of this step, and the comparison of periods
+                if (P > 0) {
+                    const [wS, wU] = FDTD_slave.addE2(E0, X, Y, Z, E2cur, cubeCodes, T.sar);
+                    const periodEnd = (n + 1) % P === 0;
+                    const check = periodEnd && havePrev;
+                    let numS = 0, denS = 0, numU = 0, denU = 0;
+                    if (periodEnd) {
+                        for (let q = 0; q < nCubes; q++) {
+                            const a = E2cur[q] / P;
+                            if (havePrev) {
+                                const b = E2prev[q], d = Math.abs(a - b), m = (a + b) / 2, w = T.sar[cubeCodes[q]];
+                                numU += d; denU += m; numS += w * d; denS += w * m;
+                            }
+                            E2prev[q] = a;
+                            E2cur[q] = 0;
+                        }
+                        havePrev = true;
+                    }
+                    const sb = new jpvmBuffer();
+                    sb.pack(n); sb.pack(wS); sb.pack(wU);
+                    sb.pack(check ? 1 : 0);
+                    sb.pack(numS); sb.pack(denS); sb.pack(numU); sb.pack(denU);
+                    jpvm.pvm_send(sb, parent, TAG_STEADY);
+                    if (periodEnd) {
+                        const verdict = await jpvm.pvm_recv(parent, TAG_VERDICT);
+                        stop = verdict.buffer.upkint() === 0;
+                        if (stop) print.println("Steady state: parou em N = " + n + ".");
+                    }
+                }
 
                 /** 6) Repassa as Matrizes
                  *  (Phoenix: only where Mur reads them - see refreshBoundary)
@@ -517,7 +564,7 @@ export class FDTD_slave {
                 // ENVIA AS RESPOSTAS PARA MASTER:
                 // -------------------------------
                 // (Phoenix: the last step always goes)
-                if (n % nSkip === 0 || n === nMax - 1) {
+                if (n % nSkip === 0 || n === nMax - 1 || stop) {
                     if (unacked >= MAX_UNACKED) { await jpvm.pvm_recv(parent, TAG_ACK); unacked--; }
                     const tagResposta = 900;
                     mes = "Mandando parcial para master com tag =" + tagResposta + ".";
@@ -528,13 +575,14 @@ export class FDTD_slave {
                     PvmUtil.sendMessageToParent(jpvm, parent, mes, (904));
                     unacked++;
                 }
+                if (stop) break;
             }
 
-            if (E2sum) {
+            if (P > 0) {
                 const E2 = new Field(cubesX, cubesY, cubesZ, "E2");
                 const e2 = E2.getData();
-                // E^2 of the peak: twice the time average of |E|^2
-                for (let q = 0; q < e2.length; q++) e2[q] = 2 * E2sum[q] / nRecordE2;
+                // E^2 of the peak: twice the time average of |E|^2 over the last finished period
+                for (let q = 0; q < e2.length; q++) e2[q] = 2 * E2prev[q];
                 PvmUtil.sendPartialField(jpvm, parent, E2, TAG_E2);
             }
             print.println("Fim: " + nMax + " passos.");
@@ -569,10 +617,13 @@ export class FDTD_slave {
         }
     }
 
-    /** Phoenix: adds |E|^2 of every cube centre (as in Field.EAtCubeCentres) to `sum`. */
-    static addE2(d, SX, SY, SZ, sum) {
+    /**
+     * Phoenix: adds |E|^2 of every cube centre (as in Field.EAtCubeCentres) to
+     * `sum`; returns [sum of sar[code]*|E|^2, sum of |E|^2] over the cubes.
+     */
+    static addE2(d, SX, SY, SZ, sum, codes, sar) {
         const w1 = SZ, w0 = SY * SZ;
-        let count = 0;
+        let count = 0, wS = 0, wU = 0;
         for (let i = 1; i < SX; i += 2) {
             for (let j = 1; j < SY; j += 2) {
                 for (let k = 1; k < SZ; k += 2) {
@@ -580,10 +631,14 @@ export class FDTD_slave {
                     const Ex = (d[p - w1 - 1] + d[p + w1 - 1] + d[p - w1 + 1] + d[p + w1 + 1]) / 4;
                     const Ey = (d[p - w0 - 1] + d[p - w0 + 1] + d[p + w0 - 1] + d[p + w0 + 1]) / 4;
                     const Ez = (d[p - w0 - w1] + d[p - w0 + w1] + d[p + w0 - w1] + d[p + w0 + w1]) / 4;
-                    sum[count++] += Ex * Ex + Ey * Ey + Ez * Ez;
+                    const e2 = Ex * Ex + Ey * Ey + Ez * Ez;
+                    wU += e2;
+                    wS += sar[codes[count]] * e2;
+                    sum[count++] += e2;
                 }
             }
         }
+        return [wS, wU];
     }
 
     /**
@@ -599,6 +654,7 @@ export class FDTD_slave {
             cmaY: new Float64Array(N), cmbY: new Float64Array(N),
             cmaZ: new Float64Array(N), cmbZ: new Float64Array(N),
             wire: new Uint8Array(N),
+            sar: new Float64Array(N),   // Phoenix: sigma/(2.density) of the tissues (0 for air and the wire)
         };
         for (let mm = 0; mm < Mat.length; mm++) {
             const mat = Mat[mm];
@@ -618,6 +674,7 @@ export class FDTD_slave {
             T.cmaZ[code] = FDTD_slave.cmaZ; T.cmbZ[code] = FDTD_slave.cmbZ;
             const name = mat.name().toLowerCase();
             if (name.startsWith("source") || name.startsWith("copper")) T.wire[code] = 1;
+            if (!mat.isAir() && !mat.isConductor() && !T.wire[code] && mat.density() > 0) T.sar[code] = si / (2 * mat.density());
         }
         return T;
     }

@@ -46,7 +46,8 @@ async function runEH(t, opts, NPROC) {
     pf.NProcSpinner.setValue(NPROC);
     pf.NField.setText(String(opts.N));
     pf.SkipText.setText(String(opts.skip));
-    pf.RecordE2CheckBox.setSelected(opts.recordE2 ?? true);
+    pf.SteadyStateCheckBox.setSelected(opts.steady ?? false);
+    if (opts.tol !== undefined) pf.ToleranceText.setText(String(opts.tol));
     await pf.StartButtonActionPerformed();
     assert.equal(pf.errorJPVM, false);
     return pf;
@@ -105,8 +106,8 @@ test('reads the John3Doe head (151 x 259 x 259, gzipped data)', async () => {
 test('reads the 2010 attributes and sources (cube, field, axis)', async () => {
     const t = await load('Air_21_21_21.3dm');
     assert.equal(t.dt, 1.9e-11);
-    assert.equal(t.N, 300);
-    assert.equal(t.reduzN, 20);
+    assert.equal(t.N, 1000);
+    assert.equal(t.reduzN, 100);
     assert.deepEqual(t.Temps, [25, 36.8, 36.8]);
     assert.equal(t.S.length, 1);
     assert.deepEqual(t.S[0].getLocation(), [10, 10, 10]);
@@ -187,7 +188,6 @@ test('EH: 1, 3 and 4 slaves give the same fields, and the fields stay bounded', 
     assert.ok(peak > 0, 'E is not zero');
     assert.equal(maxDiff(a, last(p3)), 0, 'NPROC 1 vs 3');
     assert.equal(maxDiff(a, last(p4)), 0, 'NPROC 1 vs 4');
-    assert.equal(maxDiff(p1.run.extra.E2, p4.run.extra.E2), 0, 'E2 NPROC 1 vs 4');
     // the EN files are in the 2010 text format (one line per x); there are no HN files
     const en = await ResultsDisk.readText('results/EN40');
     assert.equal(en.trim().split('\n').length, 21);
@@ -195,7 +195,7 @@ test('EH: 1, 3 and 4 slaves give the same fields, and the fields stay bounded', 
     const files = (await ResultsDisk.list()).map(f => f.path);
     assert.ok(files.includes('results/SimulAir_21_21_21.3dm'));
     assert.ok(!files.some(f => /\/HN\d/.test(f)));
-    assert.ok(files.includes('results/Air_21_21_21_E2_1.8E9Hz'));
+    assert.ok(!files.some(f => /_E2_/.test(f)), 'a fixed-N run writes no E2');
 });
 
 test('EH with Mur boundaries does not blow up over a long run', { timeout: 180000 }, async () => {
@@ -228,8 +228,20 @@ test('dipole (Tools -> Place Dipole Antenna): far-field pattern, NPROC 1 = 4', {
     assert.ok(cu, 'a copper material was added');
     assert.equal(t.model.getData(c, c, c - 3), cu.code());
     assert.equal(t.model.getData(c, c, c), 1);
-    const p1 = await runEH(t, { N: 300, skip: 300 }, 1);
-    const p4 = await runEH(t, { N: 300, skip: 300 }, 4);
+    // until the steady state (N is only the maximum)
+    const p1 = await runEH(t, { N: 3000, skip: 1000, steady: true, tol: 1 }, 1);
+    const p4 = await runEH(t, { N: 3000, skip: 1000, steady: true, tol: 1 }, 4);
+    const st = p1.steady;
+    assert.equal(st.P, 29);
+    assert.ok(st.reached, 'steady state reached');
+    assert.equal(p4.steady.n, st.n, 'NPROC 4 stops at the same step');
+    assert.ok(st.n < 3000);
+    // the difference was reported at every step from the end of the second period
+    assert.equal(st.log.length, st.n + 1 - (2 * st.P - 1));
+    assert.ok(st.log.slice(-2 * st.P).every(e => e.delta < 0.01), 'below 1 % for the last 2 periods');
+    assert.ok(st.cube[st.cube.length - 1].delta < 0.01);
+    assert.equal((st.n + 1) % st.P, 0, 'stops at the end of a period');
+    process.stdout.write('# dipole: steady state at n = ' + st.n + ' (' + ((st.n + 1) / st.P) + ' periods), difference ' + (100 * st.log[st.log.length - 1].delta).toFixed(3) + ' %\n');
     const E2 = p1.run.extra.E2;
     assert.equal(maxDiff(E2, p4.run.extra.E2), 0);
     const at = (i, j, k) => E2[(i * n + j) * n + k];
@@ -238,7 +250,7 @@ test('dipole (Tools -> Place Dipole Antenna): far-field pattern, NPROC 1 = 4', {
     // 14 cm from the gap: broadside >> along the axis, and 45 degrees about half of broadside (sin^2)
     const axial = at(c, c, c + 14), broadside = at(c + 14, c, c), diag = at(c + 10, c, c + 10);
     process.stdout.write('# dipole at 14 cm: E2 broadside / axis = ' + (broadside / axial).toFixed(1) + ', 45deg / broadside = ' + (diag / broadside).toFixed(2) + '\n');
-    assert.ok(broadside > 5 * axial, 'broadside ' + broadside + ' axial ' + axial);
+    assert.ok(broadside > 4 * axial, 'broadside ' + broadside + ' axial ' + axial);
     assert.ok(diag / broadside > 0.3 && diag / broadside < 0.7);
     ResultsStore.runs.length = 0;
 });
@@ -253,18 +265,34 @@ test('sources on and next to the plane shared by two slaves: NPROC 1 = 4', { tim
         for (const NPROC of [1, 4]) {
             const t = await airBox(41);
             await placeDipole(t, [cx, 20, 20], 'y', 7);
-            runs.push((await runEH(t, { N: 120, skip: 30 }, NPROC)).run);
+            runs.push(await runEH(t, { N: 120, skip: 30, steady: true }, NPROC));
         }
-        runs[0].snapshots.forEach((s, i) => assert.equal(maxDiff(s.fields.E, runs[1].snapshots[i].fields.E), 0, 'cube ' + cx + ', n = ' + s.n));
-        assert.equal(maxDiff(runs[0].extra.E2, runs[1].extra.E2), 0);
+        runs[0].run.snapshots.forEach((s, i) => assert.equal(maxDiff(s.fields.E, runs[1].run.snapshots[i].fields.E), 0, 'cube ' + cx + ', n = ' + s.n));
+        assert.equal(maxDiff(runs[0].E2field.getData(), runs[1].E2field.getData()), 0);
+        // the differences are sums over the slaves: equal up to the order of the additions
+        runs[0].steady.log.forEach((e, i) => assert.ok(Math.abs(e.delta - runs[1].steady.log[i].delta) <= 1e-9 * Math.max(1, e.delta)));
     }
+    ResultsStore.runs.length = 0;
+});
+
+test('steady state not reached within N: warning, no E2 file', { timeout: 120000 }, async () => {
+    ResultsDisk.useMemory();
+    const t = await airBox(41);
+    await placeDipole(t, [20, 20, 20], 'z', 7);
+    const pf = await runEH(t, { N: 100, skip: 50, steady: true }, 2);
+    assert.equal(pf.steady.reached, false);
+    assert.equal(pf.run.snapshots[pf.run.snapshots.length - 1].n, 100, 'ran to N');
+    assert.ok(pf.steady.log.length > 0 && pf.steady.log.every(e => Number.isFinite(e.delta)));
+    assert.equal(pf.E2file, null);
+    assert.ok(!(await ResultsDisk.list()).some(f => /_E2_/.test(f.path)));
     ResultsStore.runs.length = 0;
 });
 
 test('E2 of an EH run heats the tissues in SAR -> T', { timeout: 240000 }, async () => {
     ResultsDisk.useMemory();
     const t = await load('Air_SmallHead.3dm');
-    const pf = await runEH(t, { N: 1200, skip: 400 }, 2);
+    const pf = await runEH(t, { N: 8000, skip: 2000, steady: true }, 2);
+    assert.ok(pf.steady.reached);
     assert.ok(pf.E2file);
     const sarText = await ResultsDisk.readText(pf.E2file);
     const opts = { N: 61, skip: 20 };

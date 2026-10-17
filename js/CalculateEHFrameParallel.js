@@ -20,9 +20,12 @@
  *  - in 2010 NPROC was fixed at 1 (the parallel exchange did not work with
  *    the new H-then-E order; see FDTD_slave).  It can be chosen again;
  *  - the sources can be edited here (in 2010 only in the .3dm file);
- *  - "Record E^2" makes the slaves average |E|^2 over the last period and
- *    writes it in the format read by "SAR to Temperature" (2010 read that
- *    file, but nothing in CelCampJava wrote it).
+ *  - "Run until steady state": N becomes the maximum.  Every step the
+ *    window shows how much the last period differs from the one before;
+ *    when that stays below the tolerance for 2 full periods (and the cubes
+ *    agree one by one at the end of the period) the slaves stop and |E|^2
+ *    averaged over the last period is written in the format read by "SAR to
+ *    Temperature" (2010 read that file, but nothing in CelCampJava wrote it).
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -36,6 +39,8 @@ import { ResultsStore } from './phoenix/ResultsStore.js';
 
 const TAG_ACK = 905; // Phoenix: see FDTD_slave
 const TAG_E2 = 950;
+const TAG_STEADY = 99001;
+const TAG_VERDICT = 99002;
 
 export class CalculateEHFrameParallel extends JFrame {
 
@@ -78,6 +83,8 @@ export class CalculateEHFrameParallel extends JFrame {
         this.jpvm = null;
         this.run = null;           // Phoenix: snapshots for the viewer
         this.E2file = null;        // Phoenix: the E^2 file written at the end
+        this.E2field = null;       // Phoenix: the E^2 received at the end (written only in steady state)
+        this.steady = null;        // Phoenix: {P, tol, log: [{n, delta}], cube: [{n, delta}], reached, n}
         this.onFinished = null;    // Phoenix: callback (run) => void
 
         this.initComponents();
@@ -244,8 +251,9 @@ export class CalculateEHFrameParallel extends JFrame {
         this.CCAButtonGroup.add(this.Mur1RadioButton);
         this.CCAButtonGroup.add(this.Mur2RadioButton);
         this.CCAButtonGroup.add(this.PMLRadioButton);
-        this.RecordE2CheckBox = new JCheckBox("Record E² over the last period (for SAR → T)", true);
-        this.RecordE2CheckBox.setToolTipText("Averages |E|² at every cube over the last period of the run and writes results/<name>_E2_<f>Hz, the file read by Calculate → SAR to Temperature.");
+        this.SteadyStateCheckBox = new JCheckBox("Run until steady state (N = maximum), then record E² for SAR → T", true);
+        this.SteadyStateCheckBox.setToolTipText("Every step compares the last period with the one before. When the difference stays below the tolerance for 2 full periods the run stops and E² averaged over the last period goes to results/<name>_E2_<f>Hz, the file read by Calculate → SAR to Temperature.");
+        this.ToleranceText = new JTextField("1", 4);
         this.WriteFilesCheckBox = new JCheckBox("Write result files to results/", true);
         this.MemLabel = new JLabel("", "jnote");
         this.minimo = new JLabel("1");
@@ -256,6 +264,7 @@ export class CalculateEHFrameParallel extends JFrame {
         this.CancelButton = new JButton("Cancel", () => this.CancelButtonActionPerformed());
         this.CancelButton.setEnabled(false);
         this.pBar.setToolTipText("n");
+        if (this.StatusLabel.el) this.StatusLabel.el.style.whiteSpace = 'pre-line';
 
         if (!hasDOM) return;
         this.FreqPanel = row("Frequency :  ");
@@ -269,7 +278,8 @@ export class CalculateEHFrameParallel extends JFrame {
                 row("Save each ", this.SkipText, " timesteps"),
                 row("NPROC =", this.NProcSpinner, el('span', 'jnote', "(Web Workers)")),
                 row("CCA: ", this.Mur1RadioButton, this.Mur2RadioButton, this.PMLRadioButton),
-                row(this.RecordE2CheckBox),
+                row(this.SteadyStateCheckBox),
+                row("Steady when the difference stays below ", this.ToleranceText, "% for 2 periods"),
                 row(this.WriteFilesCheckBox),
                 row(this.MemLabel)),
             this.SourcesPanel = panel(null),
@@ -335,7 +345,7 @@ export class CalculateEHFrameParallel extends JFrame {
         }
     }
 
-    /** Phoenix: number of steps of one period, averaged by "Record E^2". */
+    /** Phoenix: number of steps of one period (STEADY). */
     periodSteps() {
         return Math.max(1, Math.round(1 / (this.f * this.dt)));
     }
@@ -353,7 +363,16 @@ export class CalculateEHFrameParallel extends JFrame {
             this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
             return;
         }
-        const nRecordE2 = this.RecordE2CheckBox.isSelected() ? Math.min(this.periodSteps(), this.Nmax) : 0;
+        const P = this.SteadyStateCheckBox.isSelected() ? this.periodSteps() : 0;
+        const tol = Number(this.ToleranceText.getText()) / 100;
+        if (P && !(tol > 0)) {
+            await JOptionPane.showMessageDialog(this, "Tolerancia invalida!", "Steady state", JOptionPane.ERROR_MESSAGE);
+            this.StartButton.setEnabled(true); this.CancelButton.setEnabled(false);
+            return;
+        }
+        this.E2file = null;
+        this.E2field = null;
+        this.steady = P ? { P, tol, log: [], cube: [], reached: false, n: -1 } : null;
         this.errorJPVM = false;
         let jpvm = null;
         try {
@@ -431,7 +450,7 @@ export class CalculateEHFrameParallel extends JFrame {
                 buf.pack(this.CCAorder);
                 buf.pack(Xi);        // Phoenix
                 buf.pack(ModelX);    // Phoenix
-                buf.pack(nRecordE2); // Phoenix
+                buf.pack(P);         // Phoenix
                 jpvm.pvm_send(buf, tids[i], 22);
             }
             //confirma o recebimento do tamanho e dos deltas:
@@ -471,9 +490,13 @@ export class CalculateEHFrameParallel extends JFrame {
             const cx = (ModelX - 1) / 2, cy = (ModelY - 1) / 2, cz = (ModelZ - 1) / 2;
             const FieldAtual = new Field(cx, cy, cz, "|E|", vI);   // Phoenix: |E| per cube
             const t0 = performance.now();
+            // Phoenix: STEADY - sums of |E|^2 of every step, and prefix sums of them
+            const prefS = P ? new Float64Array(this.Nmax + 1) : null;
+            const prefU = P ? new Float64Array(this.Nmax + 1) : null;
+            let below = 0;      // consecutive steps with the difference below the tolerance
+            let stop = false;
+            let n = 0;
             for (let cont = 0; cont < this.Nmax; cont++) {
-                let n = 0;
-                const save = (cont % this.skip === 0 || cont === this.Nmax - 1);
                 for (let i = 0; i < NPROC; i++) {
                     if (this.stopThread)
                         return;
@@ -481,8 +504,46 @@ export class CalculateEHFrameParallel extends JFrame {
                     const tagN = 197 + cont;
                     const message = await jpvm.pvm_recv(tids[i], tagN);
                     n = message.buffer.upkint();
-                    //5) RECEBE OS ARQUIVOS DE CADA SLAVE
-                    if (save) {
+                }
+                let delta = null, cubeDelta = null;
+                if (P) {
+                    let wS = 0, wU = 0, check = false, numS = 0, denS = 0, numU = 0, denU = 0;
+                    for (let i = 0; i < NPROC; i++) {
+                        const b = (await jpvm.pvm_recv(tids[i], TAG_STEADY)).buffer;
+                        b.upkint();
+                        wS += b.upkdouble(); wU += b.upkdouble();
+                        check = b.upkint() === 1;
+                        numS += b.upkdouble(); denS += b.upkdouble(); numU += b.upkdouble(); denU += b.upkdouble();
+                    }
+                    prefS[cont + 1] = prefS[cont] + wS;
+                    prefU[cont + 1] = prefU[cont] + wU;
+                    // the last period against the one before (SAR-weighted when there are tissues)
+                    if (cont + 1 >= 2 * P) {
+                        const pref = prefS[cont + 1] > 0 ? prefS : prefU;
+                        const A = (pref[cont + 1] - pref[cont + 1 - P]) / P;
+                        const B = (pref[cont + 1 - P] - pref[cont + 1 - 2 * P]) / P;
+                        delta = A > 0 ? Math.abs(A - B) / A : Infinity;
+                        below = delta < tol ? below + 1 : 0;
+                        this.steady.log.push({ n, delta });
+                    }
+                    if ((cont + 1) % P === 0) {
+                        // end of a period: the cubes one by one, then the verdict for the slaves
+                        if (check) {
+                            cubeDelta = denS > 0 ? numS / denS : (denU > 0 ? numU / denU : Infinity);
+                            this.steady.cube.push({ n, delta: cubeDelta });
+                        }
+                        stop = check && cubeDelta < tol && below >= 2 * P;
+                        for (let i = 0; i < NPROC; i++) {
+                            const vb = new jpvmBuffer();
+                            vb.pack(stop ? 0 : 1);
+                            jpvm.pvm_send(vb, tids[i], TAG_VERDICT);
+                        }
+                    }
+                }
+                //5) RECEBE OS ARQUIVOS DE CADA SLAVE
+                const save = (cont % this.skip === 0 || cont === this.Nmax - 1 || stop);
+                if (save) {
+                    for (let i = 0; i < NPROC; i++) {
                         const tagResposta = 900;
                         await PvmUtil.printMessageFromSlave(jpvm, tids[i], (902), false);
                         const Partial = await PvmUtil.receivePartialField(jpvm, tids[i], tagResposta);
@@ -497,23 +558,33 @@ export class CalculateEHFrameParallel extends JFrame {
                 if (this.barValue() < (n + 1))
                     this.setBar(n + 1);
                 const elapsed = (performance.now() - t0) / 1000;
-                this.StatusLabel.setText("n = " + (n + 1) + " / " + this.Nmax + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(2) + " steps/s)");
+                let status = "n = " + (n + 1) + " / " + this.Nmax + "   (" + ((cont + 1) / Math.max(elapsed, 1e-3)).toFixed(2) + " steps/s)";
+                if (P) status += "\n" + this.steadyStatus(n, delta, below);
+                this.StatusLabel.setText(status);
                 //7) GRAVA RESPOSTA EM DISCO DEPOIS DE RECEBER DE TODOS OS SLAVES
                 if (save) {
                     const r = FieldAtual.Save(this.PATH, this.SimulName, n, this);
                     ResultsStore.addSnapshot(this.run, n, r);
                     console.log("** CalculateEHFrameParallel::CalculateEHParallel():: GRAVANDO ARQUIVO " + this.PATH + "/results/EN" + n + ".");
                 }
+                if (stop) {
+                    this.steady.reached = true;
+                    this.steady.n = n;
+                    this.setBar(this.Nmax);
+                    break;
+                }
             }
-            if (nRecordE2) {
-                // Phoenix: the mean E^2 of the last period, in the SAR -> T input format
+            if (P) {
+                // Phoenix: E^2 of the last period, in the SAR -> T input format
                 const E2 = new Field(cx, cy, cz, "E2", 0);
                 for (let i = 0; i < NPROC; i++) {
                     const Partial = await PvmUtil.receivePartialField(jpvm, tids[i], TAG_E2);
                     const [Xi] = CalculateEHFrameParallel.partition(TX, NPROC, i);
                     E2.setValuesData(Partial, Xi / 2, Xi / 2 + Partial.tx, 0, cy, 0, cz);
                 }
-                this.saveE2(E2, nRecordE2);
+                this.E2field = E2;
+                if (this.steady.reached) this.saveE2(E2, P);
+                Object.assign(this.run.info, { steady: this.steady.reached, steadyAt: this.steady.n, period: P, tolerance: tol });
             }
             jpvm.pvm_exit();
         } catch (jpe) {
@@ -537,15 +608,39 @@ export class CalculateEHFrameParallel extends JFrame {
             await ResultsDisk.flush();
             ResultsStore.finish(this.run, { seconds: tempoTotal / 1000 });
             let texto = "Fim da Simulacao!! Tempo = " + (tempoTotal / 1000.0) + "s.";
-            if (this.E2file) texto += "\n\nE² of the last " + this.run.info.E2steps + " steps: " + this.E2file +
-                "\nPeak SAR = " + this.run.info.peakSAR.toPrecision(3) + " W/kg (" + this.run.info.peakSARmaterial + ")";
+            const st = this.steady;
+            if (st && st.reached) {
+                texto += "\n\nSteady state at n = " + st.n + ": the last periods differ by " + this.pct(st.log[st.log.length - 1].delta) +
+                    " (cube by cube " + this.pct(st.cube[st.cube.length - 1].delta) + "), below " + this.pct(st.tol) + " for 2 periods." +
+                    "\nE² of the last " + st.P + " steps: " + this.E2file +
+                    "\nPeak SAR = " + this.run.info.peakSAR.toPrecision(3) + " W/kg (" + this.run.info.peakSARmaterial + ")";
+            }
             await JOptionPane.showMessageDialog(this, texto, "End of Simulation", JOptionPane.INFORMATION_MESSAGE);
+            if (st && !st.reached) {
+                const last = st.log.length ? this.pct(st.log[st.log.length - 1].delta) : "not measured (fewer than 2 periods)";
+                const t = "Steady state NOT reached in " + this.Nmax + " steps (" + (this.Nmax / st.P).toFixed(1) + " periods of " + st.P + " steps).\n" +
+                    "Last difference between periods: " + last + " (tolerance " + this.pct(st.tol) + ").\n\nThe E² file was not written: increase N and run again.";
+                console.log(t);
+                await JOptionPane.showMessageDialog(this, t, "Steady state", JOptionPane.WARNING_MESSAGE);
+            }
             this.EHCalculated = true;
         }
         this.StartButton.setEnabled(true);
         this.CancelButton.setEnabled(false);
         this.setVisible(false);
         if (!this.errorJPVM && this.onFinished) this.onFinished(this.run);
+    }
+
+    pct(x) { return isFinite(x) ? (100 * x).toPrecision(3) + " %" : "∞"; }
+
+    /** Phoenix: the STEADY line of the status, every step. */
+    steadyStatus(n, delta, below) {
+        const st = this.steady;
+        if (delta === null) return "Steady state: comparing periods from n = " + (2 * st.P - 1) + " (period = " + st.P + " steps)";
+        let t = "Difference between the last two periods: " + this.pct(delta);
+        if (below > 0) t += " — below " + this.pct(st.tol) + " for " + below + " of " + (2 * st.P) + " steps";
+        if (st.cube.length) t += "; cube by cube: " + this.pct(st.cube[st.cube.length - 1].delta);
+        return t;
     }
 
     /**

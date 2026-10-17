@@ -30,7 +30,7 @@ Then, as in 2006: **File → New**, pick a model, and use the **Calculate** menu
 
 1. **File → New → John3Doe_v1_0** (the head).
 2. **Tools → Place Dipole Antenna → Place**: a half-wave copper dipole at 1.8 GHz beside the ear (new in the port; in 2010 the dipole was drawn into the model files).
-3. **Calculate → Eletromagnetic Fields (EH) → Start**, with **Record E²** on: |E| every `reduzN` steps, and at the end the E² of the last period (`results/<name>_E2_<f>Hz`) and the SAR.
+3. **Calculate → Eletromagnetic Fields (EH) → Start**, with **Run until steady state** on. The window shows, at every step, how much the last period differs from the one before. When that stays below the tolerance for 2 periods, the run stops and writes |E| every `reduzN` steps, the E² of the last period (`results/<name>_E2_<f>Hz`) and the SAR. `N` is then only the maximum.
 4. **Calculate → SAR to Temperature**: choose that E² file; the bioheat equation now includes the heat of the field (σE²/2).
 5. **Tools → Field Viewer**: |E|, E², SAR, T and the temperature rise.
 
@@ -48,8 +48,8 @@ The 2010 archive had no models; these come from the 2007 one, converted to the 2
 
 Measured in this container (4 cores, 3 workers):
 
-- **EH of the whole head** (82 million points, about 2.3 GB): ~0.2 s per step after ~10 s of setup; 2000 steps (about 9 periods at 1.8 GHz) took 7.4 min. With a 1 V dipole beside the ear the peak SAR was 1.8 W/kg, in the skin.
-- **Temperature of John3Doe** (10 million cubes): about 0.11 s per time step: 30 min of simulated time (1801 steps) took 3.3 min. In that run the dipole's field warmed the head by at most 0.008 °C, in the muscle next to the antenna. The 2007 Readme measured 7.4 s per step on a machine at Amazon.
+- **EH of the whole head** (82 million points, about 2.6 GB): ~0.25 s per step in steady-state mode, after ~10 s of setup. With a 1 V dipole beside the ear, the run reached steady state by itself at step 3233 (14 periods at 1.8 GHz) after 13.4 min. At step 2000 the periods still differed by ~5 % cube by cube. The peak SAR was 1.9 W/kg, in the skin.
+- **Temperature of John3Doe** (10 million cubes): about 0.11 s per time step: 30 min of simulated time (1801 steps) took 3.3 min. With the steady-state E², the dipole's field warmed the head by at most 0.008 °C, in the muscle next to the antenna. The 2007 Readme measured 7.4 s per step on a machine at Amazon.
 - **Tools → Redux Model** halves the resolution (8 times fewer points) when memory is short.
 
 ## Tests
@@ -62,6 +62,7 @@ npm test             # node --test: the slaves run in worker threads through the
 - **April/2007 validation, with the 2010 thermal code:** the steel cube cooling from 450 °C in air at 90 °C (hc = 115 W/m²K) against the lumped analytical solution of `CompareCubeSteel_2007.m`. The maximum error is 0.46 %; the 2007 run reported 1.47 %.
 - **Parallel = serial, bit for bit:** 1, 3 and 4 slaves give the same temperatures, the same |E| and the same E², also with sources on and next to the plane shared by two slaves.
 - **Dipole:** the far-field pattern of a half-wave dipole (E² broadside ≫ along the axis, the 45° value about half of broadside).
+- **Steady state:** the dipole run stops by itself once the periods agree within 1 % for 2 periods, at the same step for 1 and 4 slaves. The difference is reported at every step. A run whose `N` is too short warns and writes no E².
 - **SAR → T:** the E² of an EH run heats the tissues, and only heats them.
 - **EH stability:** a 600-step EH run with Mur boundaries stays bounded.
 

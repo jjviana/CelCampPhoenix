@@ -4,7 +4,7 @@
       "file": "John3Doe_v1_0.3dm",
       "dat": "John3Doe_v1_0.dat.gz",
       "title": "John3Doe v1.0 - human head",
-      "description": "Head model by Ana de Oliveira Rodrigues (2006): 151 x 259 x 259 cubes of 1.86 x 1.11 x 1.11 mm, 19 tissues. Add a phone with Tools \u2192 Place Dipole Antenna; the EH calculation of the whole head needs about 2.3 GB (Tools \u2192 Redux Model for 8x less)."
+      "description": "Head model by Ana de Oliveira Rodrigues (2006): 151 x 259 x 259 cubes of 1.86 x 1.11 x 1.11 mm, 19 tissues. Add a phone with Tools \u2192 Place Dipole Antenna; the EH calculation of the whole head needs about 2.6 GB (Tools \u2192 Redux Model for 8x less)."
     },
     {
       "file": "Cube_5_21_21_21.3dm",

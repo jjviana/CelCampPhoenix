@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="ISO-8859-1"?>
 <!-- Created by Ana Rodrigues on September 28, 2005, 16:44 PM -->
-<MaterialModel name="Air_21_21_21" dimention="21,21,21" deltas="0.01,0.01,0.01" frequency="900E6,1.8E9" dt="1.9E-11" N="300" reduzN="20" dtt="1.0" NT="10001" reduzNT="1000" Tenv="25.0" Tblood="36.8" Ttissues="36.8" hc="2.7">
+<MaterialModel name="Air_21_21_21" dimention="21,21,21" deltas="0.01,0.01,0.01" frequency="900E6,1.8E9" dt="1.9E-11" N="1000" reduzN="100" dtt="1.0" NT="10001" reduzNT="1000" Tenv="25.0" Tblood="36.8" Ttissues="36.8" hc="2.7">
 <sources>
 <source type="puntual" field="E" axis="z" location="10,10,10" maxValue="1.0" unit="V/m" hard="true"></source>
 </sources>
