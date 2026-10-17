@@ -209,11 +209,12 @@ body.busy, body.busy * { cursor: progress !important; }
 /* ----------------------------- SimulData ----------------------------- */
 .simuldata { text-align: center; max-width: 920px; }
 .simul-name { display: inline-flex; align-items: baseline; gap: 8px; border: 2px groove #ddd; padding: 2px 10px 4px; margin: 6px 0 10px; }
-.king-richard { font-family: "King Richard", "UnifrakturMaguntia", "Old English Text MT", serif; font-size: 24px; }
+/* SimulData.form (2006) used the "King Richard" font here; the port uses the font of the other windows */
+.king-richard { font: bold 15px var(--font); }
 .simul-name-value { font-weight: bold; }
 .simul-line { font-weight: bold; margin: 4px 0; }
 .simul-table-wrap { margin-top: 12px; overflow: auto; max-width: 100%; background: #fff; border: 1px solid #ccc; }
-.simul-table { border-collapse: collapse; font: 10px Arial, sans-serif; text-align: left; white-space: nowrap; }
+.simul-table { border-collapse: collapse; font: 11px var(--font); text-align: left; white-space: nowrap; }
 .simul-table th, .simul-table td { padding: 3px 8px; border-bottom: 1px solid #ddd; }
 .simul-table th { font-weight: normal; background: #fafafa; }
 .simul-table td:first-child { font-weight: bold; }
