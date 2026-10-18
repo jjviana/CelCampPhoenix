@@ -407,6 +407,10 @@ export class FDTD_T_slave {
                                 convection += Aeff * hc * (Tpoint - Tenv);
                                 evaporation += Aeff * kEvap * (PwPoint - PwEnv);
                             }
+                            // Phoenix: in the 2003 conduction only skin and hair lose heat by convection
+                            // (CF = 1 in the C program; neck skin, eye, muscle... CF = 0). In the
+                            // .3dm they are the materials with an emissivity.
+                            if (conduction === 2003 && !(E > 0)) convection = 0;
                             //FDTD DA TEMPERATURA:
                             const Tatual = Tpoint +
                                 const1 * (cellVolume * (conductionHeat + metabolism + hem + bloodCooling) +

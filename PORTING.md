@@ -122,6 +122,7 @@ They exist only in the web version and live in `js/phoenix/` and the **View** an
 - **Conduction between tissues** in the T window: *2010* (default, CelCampJava) or *2003*, the C program of the thesis (`Versao_em_C_final/Thermal/FDTDSimulator.cpp`, `ThermalPoint`).
   - **2003** follows the version of 25/03/2003 (`Versao_em_C/FDTDSimulator.cpp`, inside the Drive backup `CelCampJava_v1.0_ThermalOK_03042007.zip`), see `FDTD_T_slave.calculateGrads2003`. Its Tinit is saved apart, as `results/<model>_Tinit_2003`.
     - K∇²T only between cubes of the same tissue, one-sided at an interface.
+    - Convection only from skin and hair (CF = 1 in the C program; neck skin, eye and muscle do not lose heat to the air), the materials with an emissivity in the `.3dm`. In 2010 every cube next to the air loses heat by convection, neck skin included.
     - ∇K·∇T only along x (the y and z terms are commented out): |K₊ − K|(T₊ − T)/Δx² + |K − K₋|(T₋ − T)/Δx², each half forced to carry heat from hot to cold, when both x neighbours are not air and K changes. So between tissues heat flows only along x, with the conductance |ΔK| instead of K.
   - **Thesis reproduced.** Full head, 1.8 GHz, **Thesis 2003** antenna, field scaled to the thesis peak SAR (1.947 W/kg, i.e. 4.43 V at the gap, 71.5 mW fed, 16.9 mW absorbed), 60 min, heating by the field (T − T without SAR) in °C:
 

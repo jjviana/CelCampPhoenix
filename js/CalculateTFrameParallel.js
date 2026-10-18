@@ -22,8 +22,9 @@
  * neighbour that is not air, as CelCampJava does.  "2003" reproduces the C
  * program of the thesis (version of 25/03/2003): k.lap(T) only between
  * cubes of the same tissue, and between tissues only |delta k| along x (see
- * FDTD_T_slave.calculateGrads2003).  Its steady state is saved apart, as
- * results/<model>_Tinit_2003.
+ * FDTD_T_slave.calculateGrads2003), and only skin and hair (the materials
+ * with an emissivity) lose heat by convection.  Its steady state is saved
+ * apart, as results/<model>_Tinit_2003.
  */
 import { jpvmEnvironment } from './jpvm/jpvmEnvironment.js';
 import { jpvmBuffer } from './jpvm/jpvmBuffer.js';
@@ -135,7 +136,7 @@ export class CalculateTFrameParallel extends JFrame {
         this.TbloodText = new JTextField("36.8", 5);
         this.TtissuesText = new JTextField("36.8", 5);
         this.ConductionCombo = new JComboBox(CalculateTFrameParallel.CONDUCTIONS, CalculateTFrameParallel.CONDUCTIONS[0]);
-        this.ConductionCombo.setToolTipText("2010: heat flows to every neighbour that is not air (CelCampJava).  2003: as the C program of the thesis (25/03/2003): K to neighbours of the same tissue; between tissues only |delta K|, and only along x.");
+        this.ConductionCombo.setToolTipText("2010: heat flows to every neighbour that is not air (CelCampJava).  2003: as the C program of the thesis (25/03/2003): K to neighbours of the same tissue; between tissues only |delta K|, and only along x; convection only from skin and hair.");
         this.LoadTinitFileButton = new JButton("Tinit", () => this.LoadTinitFileButtonMouseClicked());
         this.LoadTinitFileButton.setToolTipText("Reads the initial temperature of every cube from a file (e.g. a TN file of a previous run).");
         this.TinitLabel = new JLabel("", "jnote");
@@ -290,7 +291,7 @@ export class CalculateTFrameParallel extends JFrame {
     tinitConditions() {
         const M = this.M;
         const c = { dims: [M.x(), M.y(), M.z()], deltas: [this.dx, this.dy, this.dz], Tenv: this.Tenv, Tblood: this.Tblood, hc: this.Henv };
-        if (this.conductionScheme() === "2003") c.conduction = "2003";
+        if (this.conductionScheme() === "2003") { c.conduction = "2003"; c.convection = "skin+hair"; }
         return c;
     }
 
@@ -306,7 +307,7 @@ export class CalculateTFrameParallel extends JFrame {
         const c = this.tinitConditions();
         const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
         if (!same(info.dims, c.dims) || !same(info.deltas, c.deltas) || info.Tenv !== c.Tenv || info.Tblood !== c.Tblood || info.hc !== c.hc ||
-            (info.conduction || "2010") !== (c.conduction || "2010")) return null;
+            (info.conduction || "2010") !== (c.conduction || "2010") || info.convection !== c.convection) return null;
         // made with a looser tolerance than the one asked for now: calculate it again
         const tol = Number(this.ToleranceText.getText()) / 100;
         if (tol > 0 && info.tolerance > tol * (1 + 1e-9)) return null;
